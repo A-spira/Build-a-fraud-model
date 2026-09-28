@@ -1,0 +1,11 @@
+# Environnements
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Copie brute posée à la racine (la source suivie est data/raw/carclaims.csv)
+carclaims (1).csv
+
+# OS
+.DS_Store
