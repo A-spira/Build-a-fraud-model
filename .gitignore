@@ -9,3 +9,11 @@ carclaims (1).csv
 
 # OS
 .DS_Store
+
+# Bloc 2-3 : sorties régénérables (make train / make eda)
+mlflow.db
+mlartifacts/
+mlruns/
+models/
+build/
+.pytest_cache/
