@@ -14,6 +14,9 @@ NBEXEC := $(PY) -m jupyter nbconvert --to notebook --execute \
 # Déterminisme : ordre des hash Python figé, messages MLflow non essentiels coupés.
 export PYTHONHASHSEED := 0
 export MLFLOW_DISABLE_AGENT_HINT := 1
+# Les notebooks s'exécutent avec le kernel de .venv, jamais avec un kernel
+# « python3 » d'un autre environnement (conda, utilisateur) qui le masquerait.
+export JUPYTER_PATH := $(CURDIR)/$(VENV)/share/jupyter
 
 .PHONY: install eda smoke train holdout report test mlflow-ui all
 
@@ -21,6 +24,7 @@ install:
 	$(PYTHON) -m venv $(VENV)
 	$(PY) -m pip install --upgrade pip
 	$(PY) -m pip install -r requirements.txt
+	$(PY) -m ipykernel install --sys-prefix --name python3 --display-name "Python 3 (.venv)"
 
 # Le notebook 01 (bloc 1) est exécuté vers build/, jamais en place : il n'est
 # pas modifié. Il réécrit eda_findings.md et les figures du bloc 1 à
