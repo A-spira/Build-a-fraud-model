@@ -103,3 +103,36 @@ search_spaces:
 bootstrap:
   n_resamples: 2000
   confidence: 0.95
+
+# --------------------------------------------------------------------------- #
+# Règle de décision PRÉ-ENREGISTRÉE. Commitée avant la CV complète et avant
+# toute évaluation sur 1996 : l'horodatage Git le prouve. Justification
+# détaillée : reports/bloc2_decisions.md §4.
+# --------------------------------------------------------------------------- #
+decision_rule:
+  metric: pr_auc
+  # Du plus simple au plus complexe (explicabilité, coût opérationnel).
+  simplicity_order: [logreg, svm, xgb, stacking]
+  # Étape 1 — sélection sur la CV du train uniquement : meilleure PR-AUC
+  # moyenne sur le feature set de référence (features.reference_set).
+  # Étape 2 — pour chaque modèle plus simple que ce meilleur : IC de la
+  # différence appariée par fold (t à J-1 ddl). Parmi les modèles dont l'IC
+  # contient 0, on retient le plus simple.
+  fold_test:
+    confidence: 0.95
+    correction: nadeau_bengio   # variance x (1/J + moyenne des n_val/n_train)
+    report_naive: true          # t naïf rapporté à côté, jamais utilisé pour décider
+  # Étape 2 bis — feature set : fs_policytype n'est adopté pour la famille
+  # retenue que si l'IC apparié (même test) de (policytype - basepolicy)
+  # exclut 0 par le haut. Sinon fs_basepolicy (référence) est conservé.
+  feature_set_switch:
+    from: fs_basepolicy
+    to: fs_policytype
+  # Étape 3 — holdout 1996 : le modèle retenu doit battre chaque baseline,
+  # avec un IC bootstrap (stratifié, apparié) de la différence de PR-AUC
+  # entièrement au-dessus de 0. Sinon : « gain non démontré face à <baseline> ».
+  holdout_baselines: [dummy, business]
+  # Étape 4 — si le holdout contredit la CV (un autre modèle a un IC bootstrap
+  # de différence de PR-AUC entièrement au-dessus de 0 face au modèle retenu),
+  # on le rapporte tel quel, SANS re-sélectionner (pas de test-snooping).
+  reselect_on_holdout: false
