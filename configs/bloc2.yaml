@@ -1,0 +1,138 @@
+# Bloc 2 « Comparison » + bloc 3 « Reproducibility » — configuration unique.
+#
+# Source de vérité de tous les paramètres du protocole. Le code n'a aucune
+# constante métier en dur : il lit ce fichier. Chemins relatifs à la racine du
+# projet. Justification de chaque choix : reports/bloc2_decisions.md.
+
+# Doit valoir eda.RANDOM_STATE (vérifié au chargement) : une seule seed, propagée
+# à numpy, sklearn, xgboost, aux splits et au bootstrap.
+seed: 42
+
+paths:
+  data: data/raw/carclaims.csv
+  models_dir: models                    # gitignoré, régénéré par `make train`
+  predictions_dir: reports/predictions  # interfaces pour le bloc 4
+  results_dir: reports/results          # tables lues par le rapport et le notebook 02
+  figures_dir: reports/figures/bloc2
+  report: reports/model_comparison.md
+  smoke_dir: build/smoke                # sorties du mode --smoke, jamais committées
+
+mlflow:
+  tracking_uri: sqlite:///mlflow.db     # backend local par défaut de MLflow 3.x
+  artifact_root: mlartifacts
+  experiment: fraud-bloc2-comparison
+
+split:
+  order_col: PolicyNumber               # proxy temporel (EDA §1.2)
+  year_col: Year
+  train_years: [1994, 1995]
+  test_years: [1996]                    # holdout : évalué une seule fois
+  pseudo:                               # holdout.py --pseudo : débogage sans toucher 1996
+    train_years: [1994]
+    test_years: [1995]
+
+cv:
+  n_splits: 5                           # TimeSeriesSplit (forward-chaining) sur le train
+  min_frauds_per_fold: 50
+
+preprocessing:
+  rare_threshold: 30                    # n < 30 -> modalité regroupée (EDA §3, §6.3)
+
+features:
+  # Jamais des features. PolicyNumber/FraudFound/y : ID et cible (EDA §6.4).
+  # Year : axe du split. VehicleCategory : incohérente (EDA §1.6).
+  excluded: [PolicyNumber, FraudFound, y, Year, VehicleCategory]
+  sets:                                 # une seule des deux variables de police
+    fs_basepolicy:
+      drop: [PolicyType]
+    fs_policytype:
+      drop: [BasePolicy]
+  reference_set: fs_basepolicy
+  sensitive_ablation: [Sex]             # ablation_no_sex (chiffres seulement)
+
+metrics:
+  primary: average_precision            # PR-AUC
+  ks: [0.05, 0.10, 0.20]                # rappel@k et précision@k, k = part des sinistres
+
+tuning:
+  n_iter: 40
+  smoke_n_iter: 3
+  scoring: average_precision
+  n_jobs: -1
+
+baselines:
+  # Baseline métier : score = taux de fraude du train dans la cellule
+  # Fault x BasePolicy (les deux plus forts effets légitimes, EDA §3).
+  business_cells: [Fault, BasePolicy]
+
+estimators:                             # paramètres fixes (non tunés)
+  logreg:
+    solver: lbfgs
+    max_iter: 5000
+  svm:
+    kernel: rbf
+    cache_size: 1000
+  xgb:
+    tree_method: hist
+    eval_metric: aucpr
+    n_jobs: 1                           # le parallélisme est porté par la recherche
+  stacking:
+    inner_cv_splits: 5                  # StratifiedKFold(shuffle=True) interne
+    final_C: 1.0
+
+# Espaces de recherche. dist : loguniform | uniform (bornes [low, high]) |
+# randint (bornes incluses) | choice. `neg_pos_ratio` = n_neg / n_pos du train.
+search_spaces:
+  logreg:
+    C: {dist: loguniform, low: 0.001, high: 100.0}
+    class_weight: {dist: choice, values: [null, balanced]}
+  svm:
+    C: {dist: loguniform, low: 0.01, high: 100.0}
+    gamma: {dist: loguniform, low: 0.0001, high: 1.0}
+    class_weight: {dist: choice, values: [null, balanced]}
+  xgb:
+    n_estimators: {dist: randint, low: 100, high: 800}
+    max_depth: {dist: randint, low: 2, high: 6}
+    learning_rate: {dist: loguniform, low: 0.01, high: 0.3}
+    subsample: {dist: uniform, low: 0.6, high: 1.0}
+    colsample_bytree: {dist: uniform, low: 0.5, high: 1.0}
+    min_child_weight: {dist: uniform, low: 1.0, high: 10.0}
+    reg_lambda: {dist: loguniform, low: 0.01, high: 10.0}
+    scale_pos_weight: {dist: choice, values: [1, neg_pos_ratio]}
+
+bootstrap:
+  n_resamples: 2000
+  confidence: 0.95
+
+# --------------------------------------------------------------------------- #
+# Règle de décision PRÉ-ENREGISTRÉE. Commitée avant la CV complète et avant
+# toute évaluation sur 1996 : l'horodatage Git le prouve. Justification
+# détaillée : reports/bloc2_decisions.md §4.
+# --------------------------------------------------------------------------- #
+decision_rule:
+  metric: pr_auc
+  # Du plus simple au plus complexe (explicabilité, coût opérationnel).
+  simplicity_order: [logreg, svm, xgb, stacking]
+  # Étape 1 — sélection sur la CV du train uniquement : meilleure PR-AUC
+  # moyenne sur le feature set de référence (features.reference_set).
+  # Étape 2 — pour chaque modèle plus simple que ce meilleur : IC de la
+  # différence appariée par fold (t à J-1 ddl). Parmi les modèles dont l'IC
+  # contient 0, on retient le plus simple.
+  fold_test:
+    confidence: 0.95
+    correction: nadeau_bengio   # variance x (1/J + moyenne des n_val/n_train)
+    report_naive: true          # t naïf rapporté à côté, jamais utilisé pour décider
+  # Étape 2 bis — feature set : fs_policytype n'est adopté pour la famille
+  # retenue que si l'IC apparié (même test) de (policytype - basepolicy)
+  # exclut 0 par le haut. Sinon fs_basepolicy (référence) est conservé.
+  feature_set_switch:
+    from: fs_basepolicy
+    to: fs_policytype
+  # Étape 3 — holdout 1996 : le modèle retenu doit battre chaque baseline,
+  # avec un IC bootstrap (stratifié, apparié) de la différence de PR-AUC
+  # entièrement au-dessus de 0. Sinon : « gain non démontré face à <baseline> ».
+  holdout_baselines: [dummy, business]
+  # Étape 4 — si le holdout contredit la CV (un autre modèle a un IC bootstrap
+  # de différence de PR-AUC entièrement au-dessus de 0 face au modèle retenu),
+  # on le rapporte tel quel, SANS re-sélectionner (pas de test-snooping).
+  reselect_on_holdout: false

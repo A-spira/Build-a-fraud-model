@@ -1,0 +1,107 @@
+{
+  "mode": "holdout",
+  "retained_key": "logreg__fs_basepolicy",
+  "selection": {
+    "metric": "pr_auc",
+    "reference_set": "fs_basepolicy",
+    "cv_means": {
+      "logreg": 0.1315854932998482,
+      "svm": 0.14132117272786987,
+      "xgb": 0.11138985197914748,
+      "stacking": 0.12385345865676592
+    },
+    "best_cv": "svm",
+    "comparisons": [
+      {
+        "model_a": "svm__fs_basepolicy",
+        "model_b": "logreg__fs_basepolicy",
+        "metric": "pr_auc",
+        "mean_diff": 0.009735679428021666,
+        "ci_low": -0.04738010407061904,
+        "ci_high": 0.06685146292666237,
+        "variance_factor": 0.6562023794780081,
+        "naive_ci_low": -0.021796372718000077,
+        "naive_ci_high": 0.041267731574043405,
+        "contains_zero": true
+      }
+    ],
+    "retained_family": "logreg",
+    "feature_set_test": {
+      "model_a": "logreg__fs_policytype",
+      "model_b": "logreg__fs_basepolicy",
+      "metric": "pr_auc",
+      "mean_diff": 0.001990429450855663,
+      "ci_low": -0.009367309667928966,
+      "ci_high": 0.01334816856964029,
+      "variance_factor": 0.6562023794780081,
+      "naive_ci_low": -0.004279865732312946,
+      "naive_ci_high": 0.008260724634024271,
+      "switch": false
+    },
+    "retained_feature_set": "fs_basepolicy",
+    "retained_key": "logreg__fs_basepolicy",
+    "cv_dir": "reports/results"
+  },
+  "holdout_checks": {
+    "beats_baselines": {
+      "dummy": true,
+      "business": false
+    },
+    "beats_all_baselines": false,
+    "contradicted_by": [
+      "stacking__fs_basepolicy",
+      "xgb__fs_policytype",
+      "stacking__fs_policytype"
+    ],
+    "reselected": false
+  },
+  "holdout_split": {
+    "train_policy_min": 1,
+    "train_policy_max": 11337,
+    "test_policy_min": 11338,
+    "test_policy_max": 15420,
+    "n_train": 11337,
+    "n_test": 4083,
+    "n_fraud_train": 710,
+    "n_fraud_test": 213
+  },
+  "ablation_no_sex_cv": {
+    "pr_auc_mean": 0.1308119560128453,
+    "pr_auc_std": 0.020225492084365273,
+    "roc_auc_mean": 0.7739050488984005,
+    "roc_auc_std": 0.03147417668337033,
+    "recall_at_05_mean": 0.07071736917400981,
+    "recall_at_05_std": 0.0483414213786168,
+    "recall_at_10_mean": 0.17724779420209952,
+    "recall_at_10_std": 0.08612498590077652,
+    "recall_at_20_mean": 0.45820747149710606,
+    "recall_at_20_std": 0.10585026602204431,
+    "precision_at_05_mean": 0.08421052631578947,
+    "precision_at_05_std": 0.05418752705782632,
+    "precision_at_10_mean": 0.10687830687830688,
+    "precision_at_10_std": 0.047677800321984376,
+    "precision_at_20_mean": 0.1402116402116402,
+    "precision_at_20_std": 0.030623907150238692
+  },
+  "bootstrap": {
+    "n_resamples": 2000,
+    "seed": 42,
+    "confidence": 0.95,
+    "stratified": true,
+    "paired": true
+  },
+  "mlflow_runs": {
+    "logreg__fs_basepolicy": "de1af9d6c1bc442cad0aea56676500a5",
+    "svm__fs_basepolicy": "e4441cb0980442e7ac66a136cec807ac",
+    "xgb__fs_basepolicy": "5d69e1b07b4842d9982f6dd6d75df79e",
+    "stacking__fs_basepolicy": "040e05b9505d4281bd1d1f8e1eba25c5",
+    "logreg__fs_policytype": "f214dd35cc084ef3ba4faf99c4b5a7a9",
+    "svm__fs_policytype": "57dd4943be294f0eabfc0a8dea20ab35",
+    "xgb__fs_policytype": "f0560b85dc4e44b18d7dedc614996a81",
+    "stacking__fs_policytype": "9f43b15971c6477785ade1521883b37d",
+    "dummy": "1a101c86e8cc4c6f988d7fb23134d1d5",
+    "business": "e6ee91d412fc49929a0cfa1983a3e25c",
+    "ablation_no_sex": "fec5965287254a4f852c04b4973098ae",
+    "comparison": "6fa9764997524ee7a786fb7c1a14b2ca"
+  }
+}

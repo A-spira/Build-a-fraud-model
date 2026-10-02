@@ -1,0 +1,15 @@
+model_a,model_b,metric,diff,ci_low,ci_high,verdict,comparison
+logreg__fs_basepolicy,svm__fs_basepolicy,pr_auc,-0.023302865249759372,-0.05842885130833401,0.0037865821745385326,non significatif,retenu_vs_autres
+logreg__fs_basepolicy,xgb__fs_basepolicy,pr_auc,-0.02791145194212899,-0.060968494648201726,0.00042599256698388664,non significatif,retenu_vs_autres
+logreg__fs_basepolicy,stacking__fs_basepolicy,pr_auc,-0.028810791993894497,-0.06154237102598866,-0.0018558545992522308,b > a,retenu_vs_autres
+logreg__fs_basepolicy,logreg__fs_policytype,pr_auc,-0.0035506048099887277,-0.012236921201313854,0.004753768603800373,non significatif,retenu_vs_autres
+logreg__fs_basepolicy,svm__fs_policytype,pr_auc,-0.0011979287495974822,-0.02936251844145654,0.02163432880954522,non significatif,retenu_vs_autres
+logreg__fs_basepolicy,xgb__fs_policytype,pr_auc,-0.032854699707894425,-0.06731905471793372,-0.003422129193586322,b > a,retenu_vs_autres
+logreg__fs_basepolicy,stacking__fs_policytype,pr_auc,-0.032217161650240966,-0.06538034019763281,-0.004390307241017087,b > a,retenu_vs_autres
+logreg__fs_basepolicy,dummy,pr_auc,0.047659559818173006,0.03730840880366453,0.06852373161932955,a > b,retenu_vs_autres
+logreg__fs_basepolicy,business,pr_auc,-0.005472595333875049,-0.018768151985713695,0.011604749495256658,non significatif,retenu_vs_autres
+logreg__fs_policytype,logreg__fs_basepolicy,pr_auc,0.0035506048099887277,-0.004753768603800377,0.012236921201313845,non significatif,ablation_feature_set
+svm__fs_policytype,svm__fs_basepolicy,pr_auc,-0.02210493650016189,-0.03908341912891604,-0.008411122998071433,b > a,ablation_feature_set
+xgb__fs_policytype,xgb__fs_basepolicy,pr_auc,0.004943247765765435,0.00039702307167783726,0.010566243323921073,a > b,ablation_feature_set
+stacking__fs_policytype,stacking__fs_basepolicy,pr_auc,0.0034063696563464696,-0.0022384696495581567,0.00855350497222046,non significatif,ablation_feature_set
+ablation_no_sex,logreg__fs_basepolicy,pr_auc,-0.00011774382965733243,-0.002803957856594347,0.002473204669792792,non significatif,ablation_no_sex
