@@ -60,6 +60,11 @@ tuning:
   scoring: average_precision
   n_jobs: -1
 
+baselines:
+  # Baseline métier : score = taux de fraude du train dans la cellule
+  # Fault x BasePolicy (les deux plus forts effets légitimes, EDA §3).
+  business_cells: [Fault, BasePolicy]
+
 estimators:                             # paramètres fixes (non tunés)
   logreg:
     solver: lbfgs
