@@ -1,0 +1,40 @@
+{
+  "logreg__fs_basepolicy": {
+    "clf__C": 63.95288218539363,
+    "clf__class_weight": null
+  },
+  "svm__fs_basepolicy": {
+    "clf__C": 0.042070539502879395,
+    "clf__class_weight": null,
+    "clf__gamma": 0.006870614282613299
+  },
+  "xgb__fs_basepolicy": {
+    "clf__colsample_bytree": 0.5993578407670862,
+    "clf__learning_rate": 0.010189592979395137,
+    "clf__max_depth": 4,
+    "clf__min_child_weight": 2.7895816367992463,
+    "clf__n_estimators": 491,
+    "clf__reg_lambda": 1.5382308040278996,
+    "clf__scale_pos_weight": 1,
+    "clf__subsample": 0.8423839899124046
+  },
+  "logreg__fs_policytype": {
+    "clf__C": 63.95288218539363,
+    "clf__class_weight": null
+  },
+  "svm__fs_policytype": {
+    "clf__C": 2.2233337605920376,
+    "clf__class_weight": null,
+    "clf__gamma": 0.0013296521457299515
+  },
+  "xgb__fs_policytype": {
+    "clf__colsample_bytree": 0.5993578407670862,
+    "clf__learning_rate": 0.010189592979395137,
+    "clf__max_depth": 4,
+    "clf__min_child_weight": 2.7895816367992463,
+    "clf__n_estimators": 491,
+    "clf__reg_lambda": 1.5382308040278996,
+    "clf__scale_pos_weight": 1,
+    "clf__subsample": 0.8423839899124046
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "logreg__fs_basepolicy": "predict_proba[:,1]",
+  "svm__fs_basepolicy": "decision_function",
+  "xgb__fs_basepolicy": "predict_proba[:,1]",
+  "stacking__fs_basepolicy": "predict_proba[:,1]",
+  "logreg__fs_policytype": "predict_proba[:,1]",
+  "svm__fs_policytype": "decision_function",
+  "xgb__fs_policytype": "predict_proba[:,1]",
+  "stacking__fs_policytype": "predict_proba[:,1]",
+  "dummy": "predict_proba[:,1]",
+  "business": "predict_proba[:,1]",
+  "ablation_no_sex": "predict_proba[:,1]"
+}

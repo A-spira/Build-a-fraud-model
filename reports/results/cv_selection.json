@@ -1,0 +1,41 @@
+{
+  "metric": "pr_auc",
+  "reference_set": "fs_basepolicy",
+  "cv_means": {
+    "logreg": 0.1315854932998482,
+    "svm": 0.14132117272786987,
+    "xgb": 0.11138985197914748,
+    "stacking": 0.12385345865676592
+  },
+  "best_cv": "svm",
+  "comparisons": [
+    {
+      "model_a": "svm__fs_basepolicy",
+      "model_b": "logreg__fs_basepolicy",
+      "metric": "pr_auc",
+      "mean_diff": 0.009735679428021666,
+      "ci_low": -0.04738010407061904,
+      "ci_high": 0.06685146292666237,
+      "variance_factor": 0.6562023794780081,
+      "naive_ci_low": -0.021796372718000077,
+      "naive_ci_high": 0.041267731574043405,
+      "contains_zero": true
+    }
+  ],
+  "retained_family": "logreg",
+  "feature_set_test": {
+    "model_a": "logreg__fs_policytype",
+    "model_b": "logreg__fs_basepolicy",
+    "metric": "pr_auc",
+    "mean_diff": 0.001990429450855663,
+    "ci_low": -0.009367309667928966,
+    "ci_high": 0.01334816856964029,
+    "variance_factor": 0.6562023794780081,
+    "naive_ci_low": -0.004279865732312946,
+    "naive_ci_high": 0.008260724634024271,
+    "switch": false
+  },
+  "retained_feature_set": "fs_basepolicy",
+  "retained_key": "logreg__fs_basepolicy",
+  "cv_dir": "reports/results"
+}

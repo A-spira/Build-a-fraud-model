@@ -316,12 +316,15 @@ def plot_fold_scores(cv_folds: pd.DataFrame, metric: str, keys: list[str],
 
 def plot_intervals(table: pd.DataFrame, xlabel: str, title: str,
                    reference: float | None = None) -> Figure:
-    """Estimation ponctuelle + IC à 95 % par ligne (colonnes key, point, ci_low, ci_high)."""
+    """Estimation ponctuelle + IC à 95 % par ligne.
+
+    Colonnes : key, point, ci_low, ci_high ; optionnelles : label, color.
+    """
     table = table.reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(7.5, 0.45 * len(table) + 1.4), facecolor=SURFACE)
     ypos = np.arange(len(table))[::-1]
     for yy, (_, row) in zip(ypos, table.iterrows()):
-        color = model_style(row["key"])["color"]
+        color = row["color"] if pd.notna(row.get("color")) else model_style(row["key"])["color"]
         ax.plot([row["ci_low"], row["ci_high"]], [yy, yy], color=color, linewidth=2)
         ax.plot(row["point"], yy, "o", color=color, markersize=8,
                 markeredgecolor=SURFACE, markeredgewidth=2)
@@ -330,8 +333,142 @@ def plot_intervals(table: pd.DataFrame, xlabel: str, title: str,
     ax.set_yticks(ypos)
     ax.set_yticklabels([row.get("label", model_label(row["key"])) for _, row in table.iterrows()])
     ax.set_xlabel(xlabel)
-    ax.set_title(title, fontsize=11, loc="left")
     _style_axes(ax)
     ax.grid(False, axis="y")
+    # Titre au niveau de la figure : les étiquettes longues de l'axe y
+    # réduisent la largeur de l'axe, un titre d'axe y serait tronqué.
+    fig.suptitle(title, fontsize=11, x=0.01, ha="left", color=INK)
     fig.tight_layout()
     return fig
+
+
+# --------------------------------------------------------------------------- #
+# Règle de décision pré-enregistrée (cfg['decision_rule'])
+# --------------------------------------------------------------------------- #
+def _fold_scores(cv_folds: pd.DataFrame, key: str, metric: str) -> np.ndarray:
+    sub = cv_folds[cv_folds["model"] == key].sort_values("fold")
+    assert len(sub), f"pas de résultats CV pour {key}"
+    return sub[metric].to_numpy(dtype=float)
+
+
+def _fold_test(cv_folds: pd.DataFrame, fold_info: pd.DataFrame, key_a: str, key_b: str,
+               metric: str, confidence: float) -> dict[str, Any]:
+    """IC apparié (a - b) : Nadeau-Bengio pour décider, naïf pour information."""
+    info = fold_info.sort_values("fold")
+    a, b = _fold_scores(cv_folds, key_a, metric), _fold_scores(cv_folds, key_b, metric)
+    nb = paired_fold_ci(a, b, info["n_train"], info["n_val"], confidence, corrected=True)
+    naive = paired_fold_ci(a, b, info["n_train"], info["n_val"], confidence, corrected=False)
+    return {"model_a": key_a, "model_b": key_b, "metric": metric,
+            "mean_diff": nb["mean_diff"], "ci_low": nb["ci_low"], "ci_high": nb["ci_high"],
+            "variance_factor": nb["variance_factor"],
+            "naive_ci_low": naive["ci_low"], "naive_ci_high": naive["ci_high"]}
+
+
+def select_on_cv(cv_folds: pd.DataFrame, fold_info: pd.DataFrame,
+                 cfg: dict[str, Any]) -> dict[str, Any]:
+    """Étapes 1, 2 et 2 bis de la règle : sélection sur la CV du train SEULE.
+
+    1. meilleure PR-AUC moyenne sur le feature set de référence ;
+    2. parmi les modèles plus simples dont l'IC apparié (Nadeau-Bengio) de la
+       différence avec le meilleur contient 0, le plus simple ;
+    2 bis. ``feature_set_switch['to']`` seulement si son IC apparié face à
+       ``feature_set_switch['from']`` exclut 0 par le haut.
+    """
+    rule = cfg["decision_rule"]
+    metric, order = rule["metric"], rule["simplicity_order"]
+    confidence = rule["fold_test"]["confidence"]
+    ref = cfg["features"]["reference_set"]
+
+    means = {fam: float(_fold_scores(cv_folds, M.model_key(fam, ref), metric).mean())
+             for fam in order}
+    best = max(order, key=lambda fam: means[fam])     # égalité -> le plus simple
+    comparisons = []
+    for fam in order[: order.index(best)]:
+        test = _fold_test(cv_folds, fold_info, M.model_key(best, ref), M.model_key(fam, ref),
+                          metric, confidence)
+        test["contains_zero"] = bool(test["ci_low"] <= 0.0 <= test["ci_high"])
+        comparisons.append(test)
+    # `comparisons` suit l'ordre de simplicité : le premier éligible est le plus simple.
+    eligible = [c["model_b"] for c in comparisons if c["contains_zero"]]
+    retained_family = eligible[0].partition("__")[0] if eligible else best
+
+    switch = rule["feature_set_switch"]
+    fs_test = _fold_test(cv_folds, fold_info, M.model_key(retained_family, switch["to"]),
+                         M.model_key(retained_family, switch["from"]), metric, confidence)
+    fs_test["switch"] = bool(fs_test["ci_low"] > 0.0)
+    retained_fs = switch["to"] if fs_test["switch"] else switch["from"]
+    return {
+        "metric": metric, "reference_set": ref, "cv_means": means, "best_cv": best,
+        "comparisons": comparisons, "retained_family": retained_family,
+        "feature_set_test": fs_test, "retained_feature_set": retained_fs,
+        "retained_key": M.model_key(retained_family, retained_fs),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Bootstrap apparié sur le holdout
+# --------------------------------------------------------------------------- #
+def paired_bootstrap(y_true: Any, scores: dict[str, Any], ks: Iterable[float],
+                     n_resamples: int, seed: int) -> pd.DataFrame:
+    """Bootstrap stratifié et apparié : une ligne par (réplique, modèle).
+
+    Stratifié : fraudes et non-fraudes rééchantillonnées séparément, donc la
+    prévalence reste constante. Apparié : les MÊMES indices servent à tous les
+    modèles, donc l'IC d'une différence n'inclut pas la variance commune.
+    """
+    ks = list(ks)
+    y = np.asarray(y_true)
+    pos, neg = np.flatnonzero(y == 1), np.flatnonzero(y == 0)
+    arrays = {k: np.asarray(v, dtype=float) for k, v in scores.items()}
+    rng = np.random.default_rng(seed)
+    rows = []
+    for b in range(n_resamples):
+        idx = np.concatenate([rng.choice(pos, size=len(pos), replace=True),
+                              rng.choice(neg, size=len(neg), replace=True)])
+        yb = y[idx]
+        for key, s in arrays.items():
+            rows.append({"replicate": b, "model": key, **ranking_metrics(yb, s[idx], ks)})
+    return pd.DataFrame(rows)
+
+
+def bootstrap_intervals(boot: pd.DataFrame, point: dict[str, dict[str, float]],
+                        names: Iterable[str], confidence: float) -> pd.DataFrame:
+    """Valeur sur le holdout + IC percentile, par modèle et par métrique."""
+    alpha = (1 - confidence) / 2
+    rows = []
+    for key in point:
+        sub = boot[boot["model"] == key]
+        for name in names:
+            lo, hi = np.quantile(sub[name], [alpha, 1 - alpha])
+            rows.append({"model": key, "metric": name, "point": point[key][name],
+                         "ci_low": float(lo), "ci_high": float(hi)})
+    return pd.DataFrame(rows)
+
+
+def bootstrap_differences(boot: pd.DataFrame, point: dict[str, dict[str, float]],
+                          reference: str, others: Iterable[str], metric: str,
+                          confidence: float) -> pd.DataFrame:
+    """IC percentile de ``metric(reference) - metric(autre)`` (réplicats appariés)."""
+    alpha = (1 - confidence) / 2
+    wide = boot.pivot(index="replicate", columns="model", values=metric)
+    rows = []
+    for other in others:
+        d = wide[reference] - wide[other]
+        lo, hi = np.quantile(d, [alpha, 1 - alpha])
+        verdict = "a > b" if lo > 0 else ("b > a" if hi < 0 else "non significatif")
+        rows.append({"model_a": reference, "model_b": other, "metric": metric,
+                     "diff": point[reference][metric] - point[other][metric],
+                     "ci_low": float(lo), "ci_high": float(hi), "verdict": verdict})
+    return pd.DataFrame(rows)
+
+
+def holdout_checks(diffs: pd.DataFrame, retained: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Étapes 3 et 4 : baselines battues ? contradiction avec la CV ?"""
+    rule = cfg["decision_rule"]
+    mine = diffs[diffs["model_a"] == retained].set_index("model_b")
+    beats = {b: bool(mine.loc[b, "ci_low"] > 0) for b in rule["holdout_baselines"]}
+    contradicted_by = [m for m, row in mine.iterrows()
+                       if m not in rule["holdout_baselines"] and row["ci_high"] < 0]
+    return {"beats_baselines": beats, "beats_all_baselines": all(beats.values()),
+            "contradicted_by": contradicted_by,
+            "reselected": False if not rule["reselect_on_holdout"] else None}
