@@ -1,9 +1,9 @@
 # Bloc 2 v2 — Comparaison élargie (ML + DL) et règle pré-enregistrée v2
 
-> **Statut : BROUILLON, pas encore pré-enregistré.** Ce document et
-> `configs/bloc2_v2.yaml` deviennent la règle v2 au commit qui les fige,
+> **Statut : PRÉ-ENREGISTRÉ.** Ce document et `configs/bloc2_v2.yaml` forment
+> la règle v2, figée par le commit qui a retiré la mention de brouillon,
 > **avant** la CV complète v2 et avant la seconde lecture de 1996
-> (`git log --follow reports/bloc2_v2_decisions.md` fera foi). Avant ce
+> (`git log --follow reports/bloc2_v2_decisions.md` fait foi). Avant ce
 > commit, seuls des passages de validation de la chaîne ont tourné. Aucun
 > n'affiche de métrique, et leurs sorties ne sont pas lues : le *smoke*
 > (`make smoke-v2`, 3 configurations par famille), le smoke de l'ablation
