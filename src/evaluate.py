@@ -320,7 +320,44 @@ def _legend_right(ax: plt.Axes) -> None:
               bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0)
 
 
-def plot_pr_curves(y_true: Any, scores: dict[str, Any], title: str) -> Figure:
+def _series_style(key: str, styles: dict[str, dict[str, Any]] | None,
+                  label: str) -> dict[str, Any]:
+    """Style d'une série : ``styles[key]`` s'il est fourni (v2, par rôle),
+    sinon la couleur de la famille (v1). ``label`` peut y être surchargé."""
+    style = {"linewidth": 2, "label": label}
+    style.update(styles[key] if styles and key in styles else model_style(key))
+    return style
+
+
+def role_styles(keys: Iterable[str], retained: str, best_cv: str,
+                bars: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Styles par rôle quand il y a trop de familles pour une couleur chacune (v2).
+
+    Retenu en bleu, meilleur en CV en orange (couleurs 1 et 2 de la palette),
+    barres à battre (baselines, référence v1) en gris foncé et tirets,
+    toutes les autres familles en gris clair, fines et regroupées sous une
+    seule entrée de légende « autres familles ».
+    """
+    bars = list(bars)
+    out, other_labelled = {}, False
+    for key in keys:
+        if key == retained:
+            out[key] = {"color": FAMILY_COLORS["logreg"], "linestyle": "-"}
+        elif key == best_cv:
+            out[key] = {"color": FAMILY_COLORS["svm"], "linestyle": "-"}
+        elif key in bars:
+            out[key] = {**model_style(key), "color": MUTED if key == "dummy" else INK_2}
+            if key not in BASELINE_STYLES:
+                out[key]["linestyle"] = "--"
+        else:
+            out[key] = {"color": AXIS, "linestyle": "-", "linewidth": 1,
+                        "label": "_nolegend_" if other_labelled else "Autres familles"}
+            other_labelled = True
+    return out
+
+
+def plot_pr_curves(y_true: Any, scores: dict[str, Any], title: str,
+                   styles: dict[str, dict[str, Any]] | None = None) -> Figure:
     """Courbes précision-rappel ; la légende porte la PR-AUC de chaque modèle."""
     fig, ax = plt.subplots(figsize=(9.5, 5.2), facecolor=SURFACE)
     y = np.asarray(y_true)
@@ -334,8 +371,8 @@ def plot_pr_curves(y_true: Any, scores: dict[str, Any], title: str) -> Figure:
         precision, recall = precision[:-1], recall[:-1]
         top = max(top, precision[recall >= 0.02].max())
         ap = average_precision_score(y[mask], s[mask])
-        ax.step(recall, precision, where="post", linewidth=2,
-                label=f"{model_label(key)} — PR-AUC {ap:.3f}", **model_style(key))
+        ax.step(recall, precision, where="post",
+                **_series_style(key, styles, f"{model_label(key)} — PR-AUC {ap:.3f}"))
     ax.set_xlabel("Rappel (part des fraudes captées)")
     ax.set_ylabel("Précision (part de fraudes parmi les alertes)")
     ax.set_xlim(0, 1)
@@ -348,13 +385,13 @@ def plot_pr_curves(y_true: Any, scores: dict[str, Any], title: str) -> Figure:
 
 
 def plot_fold_scores(cv_folds: pd.DataFrame, metric: str, keys: list[str],
-                     title: str) -> Figure:
+                     title: str, styles: dict[str, dict[str, Any]] | None = None) -> Figure:
     """Score par fold temporel : montre la variance et l'appariement des folds."""
     fig, ax = plt.subplots(figsize=(9.5, 4.5), facecolor=SURFACE)
     for key in keys:
         sub = cv_folds[cv_folds["model"] == key].sort_values("fold")
-        ax.plot(sub["fold"], sub[metric], marker="o", markersize=6, linewidth=2,
-                label=model_label(key), **model_style(key))
+        ax.plot(sub["fold"], sub[metric], marker="o", markersize=6,
+                **_series_style(key, styles, model_label(key)))
     ax.set_xticks(sorted(cv_folds["fold"].unique()))
     ax.set_xlabel("Fold de validation (ordre temporel)")
     ax.set_ylabel(metric_label(metric))

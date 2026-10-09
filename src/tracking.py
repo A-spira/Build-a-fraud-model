@@ -76,6 +76,11 @@ def _git(*args: str) -> str:
         return "unknown"
 
 
+def last_commit(paths: list[str]) -> str:
+    """Hash court et date du dernier commit touchant ``paths`` (pré-enregistrement)."""
+    return _git("log", "-1", "--format=%h du %ad", "--date=short", "--", *paths)
+
+
 def git_commit() -> str:
     return _git("rev-parse", "HEAD")
 
@@ -102,6 +107,15 @@ def check_preregistered(cfg: dict[str, Any]) -> None:
             f"{rel} a des modifications non commitées : règle non pré-enregistrée"
         text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
         assert pre["draft_marker"] not in text, f"{rel} est encore un brouillon"
+
+
+def is_preregistered(cfg: dict[str, Any]) -> bool:
+    """Vrai si la règle est pré-enregistrée (toujours vrai sans clé ``preregistration``)."""
+    try:
+        check_preregistered(cfg)
+    except AssertionError:
+        return False
+    return True
 
 
 def file_sha256(path: str | Path) -> str:

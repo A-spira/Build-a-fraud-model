@@ -19,7 +19,8 @@ export MLFLOW_DISABLE_AGENT_HINT := 1
 # « python3 » d'un autre environnement (conda, utilisateur) qui le masquerait.
 export JUPYTER_PATH := $(CURDIR)/$(VENV)/share/jupyter
 
-.PHONY: install eda smoke train holdout report test mlflow-ui all smoke-v2 train-v2
+.PHONY: install eda smoke train holdout report test mlflow-ui all smoke-v2 train-v2 \
+        holdout-v2 report-v2 determinism-v2 night-v2
 
 install:
 	$(PYTHON) -m venv $(VENV)
@@ -56,6 +57,32 @@ smoke-v2:
 
 train-v2:
 	$(PY) src/train.py --config $(CONFIG_V2)
+
+# Lecture unique de 1996 pour la v2 (refusée tant que la règle n'est pas gelée).
+holdout-v2:
+	$(PY) src/holdout.py --config $(CONFIG_V2)
+
+report-v2:
+	$(PY) src/report.py --config $(CONFIG_V2)
+	$(NBEXEC) --inplace notebooks/03_model_comparison_v2.ipynb
+
+# Déterminisme : un second train-v2 doit reproduire la CV à l'octet près.
+# Les sorties du premier passage sont copiées dans build/v2/run1, puis comparées.
+V2_RESULTS := reports/v2/results
+V2_RUN1    := build/v2/run1
+determinism-v2:
+	rm -rf $(V2_RUN1) && mkdir -p $(V2_RUN1)
+	cp $(V2_RESULTS)/cv_folds.csv $(V2_RESULTS)/cv_summary.csv $(V2_RESULTS)/fold_info.csv \
+	   $(V2_RESULTS)/best_params.json reports/v2/predictions/oof_scores.csv $(V2_RUN1)/
+	$(PY) src/train.py --config $(CONFIG_V2)
+	for f in cv_folds.csv cv_summary.csv fold_info.csv best_params.json; do \
+	  cmp $(V2_RUN1)/$$f $(V2_RESULTS)/$$f || exit 1; done
+	cmp $(V2_RUN1)/oof_scores.csv reports/v2/predictions/oof_scores.csv
+	@echo "Déterminisme v2 : deux train-v2 identiques à l'octet près."
+
+# La nuit, sans mise en veille :  caffeinate -i make night-v2
+# CV complète, contrôle du déterminisme, puis lecture unique de 1996 et rapport.
+night-v2: train-v2 determinism-v2 holdout-v2 report-v2
 
 test:
 	$(PY) -m pytest -q tests

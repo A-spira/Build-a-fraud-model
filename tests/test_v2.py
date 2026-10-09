@@ -423,3 +423,38 @@ def test_fit_resampled_without_synthetic_rows_is_a_plain_fit(cfg_v2, stage_a):
     a = ES.fit_resampled(clone(est), A.select_dtypes("number"), y, 0)
     b = clone(est).fit(A.select_dtypes("number"), y)
     np.testing.assert_array_equal(a.coef_, b.coef_)
+
+
+# --------------------------------------------------------------------------- #
+# Holdout et rapport : v1 inchangée, v2 pilotée par la config
+# --------------------------------------------------------------------------- #
+def _holdout_stub(cfg):
+    import holdout as H
+    ev = H.HoldoutEvaluation.__new__(H.HoldoutEvaluation)
+    ev.cfg = cfg
+    return ev
+
+
+def test_v1_runs_only_the_no_sex_ablation(cfg):
+    assert cfg.get("ablations", ["no_sex"]) == ["no_sex"]
+    spec = _holdout_stub(cfg).ablation_spec("no_sex", "logreg__fs_basepolicy")
+    assert spec["dropped"] == ["Sex"] and not spec["oversample"]
+    assert spec["feature_set"] == "fs_basepolicy"
+
+
+def test_v2_ablations_change_one_thing_each(cfg_v2):
+    ev = _holdout_stub(cfg_v2)
+    specs = {n: ev.ablation_spec(n, "ebm__fs_basepolicy") for n in cfg_v2["ablations"]}
+    assert specs["no_sex"]["dropped"] == ["Sex"]
+    assert specs["fs_policytype"]["feature_set"] == "fs_policytype"
+    assert specs["smote_nc"]["oversample"] and specs["smote_nc"]["feature_set"] == "fs_basepolicy"
+    with pytest.raises(ValueError):
+        ev.ablation_spec("inconnue", "ebm__fs_basepolicy")
+
+
+def test_report_dispatches_on_the_simplicity_rule(cfg, cfg_v2):
+    import report as R
+    assert R.model_order(cfg) == [M.model_key(f, fs) for fs in cfg["features"]["sets"]
+                                  for f in M.MODEL_FAMILIES] + M.BASELINES
+    order = R.model_order(cfg_v2)
+    assert order[-1] == "logreg_v1" and len(order) == len(M.model_families(cfg_v2)) + 3
