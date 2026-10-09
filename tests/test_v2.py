@@ -458,3 +458,15 @@ def test_report_dispatches_on_the_simplicity_rule(cfg, cfg_v2):
                                   for f in M.MODEL_FAMILIES] + M.BASELINES
     order = R.model_order(cfg_v2)
     assert order[-1] == "logreg_v1" and len(order) == len(M.model_families(cfg_v2)) + 3
+
+
+def test_draft_marker_is_only_searched_in_the_decision_document(cfg_v2):
+    """La config définit la mention de brouillon : elle ne doit pas bloquer le gel."""
+    import tracking as T
+
+    pre = cfg_v2["preregistration"]
+    config_only = {**cfg_v2, "preregistration": {**pre, "files": ["configs/bloc2_v2.yaml"]}}
+    if not T._git("status", "--porcelain", "--", "configs/bloc2_v2.yaml"):
+        T.check_preregistered(config_only)            # ne lève pas
+    text = (F.PROJECT_ROOT / "configs" / "bloc2_v2.yaml").read_text(encoding="utf-8")
+    assert pre["draft_marker"] in text                # le piège existe bien

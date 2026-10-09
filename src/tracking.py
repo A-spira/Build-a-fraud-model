@@ -96,6 +96,8 @@ def check_preregistered(cfg: dict[str, Any]) -> None:
     Chaque fichier de ``cfg['preregistration']['files']`` doit être suivi par
     Git, sans modification non commitée, et le document ne doit plus porter la
     mention de brouillon. Sans clé ``preregistration`` (v1), rien n'est vérifié.
+    La mention n'est cherchée que dans les documents : la config YAML la
+    définit (``draft_marker``) et la contient donc toujours.
     """
     pre = cfg.get("preregistration")
     if not pre:
@@ -105,6 +107,8 @@ def check_preregistered(cfg: dict[str, Any]) -> None:
         assert tracked not in ("", "unknown"), f"{rel} n'est pas commité : règle non pré-enregistrée"
         assert not _git("status", "--porcelain", "--", rel), \
             f"{rel} a des modifications non commitées : règle non pré-enregistrée"
+        if rel.endswith((".yaml", ".yml")):
+            continue
         text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
         assert pre["draft_marker"] not in text, f"{rel} est encore un brouillon"
 
