@@ -5,6 +5,11 @@ les colonnes brutes du CSV (hors cible). LR, SVM, XGBoost, stacking et la
 baseline « prior » partagent le même préprocesseur (``features``) ; la baseline
 métier lit directement ses deux colonnes brutes.
 
+v2 : les familles comparées viennent de la config (``decision_rule.
+simplicity_order``) et chacune a son étage B de prétraitement
+(``FAMILY_PREP``) ; l'étage A est commun. Sans ces clés, le comportement est
+celui de la v1.
+
 Scores bruts : ``predict_proba[:, 1]`` quand le modèle l'expose, sinon
 ``decision_function`` (SVM sans Platt : la calibration relève du bloc 4). Les
 métriques de ranking (PR-AUC, ROC-AUC, rappel@k) sont invariantes à toute
@@ -19,8 +24,10 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn.base import BaseEstimator, ClassifierMixin, TransformerMixin
+from imblearn.ensemble import BalancedRandomForestClassifier
+from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn.dummy import DummyClassifier
-from sklearn.ensemble import StackingClassifier
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
@@ -29,12 +36,68 @@ from sklearn.utils.validation import check_is_fitted
 from xgboost import XGBClassifier
 
 import eda
+import estimators as ES
 import features as F
 
-# Familles comparées (ordre de simplicité de la règle de décision) et baselines.
+# v1 : familles comparées (ordre de simplicité de la règle de décision) et
+# baselines. La v2 lit ses familles dans la config (fonctions ci-dessous).
 TUNED_FAMILIES = ["logreg", "svm", "xgb"]
 MODEL_FAMILIES = TUNED_FAMILIES + ["stacking"]
 BASELINES = ["dummy", "business"]
+
+# Familles qui combinent d'autres familles (hyperparamètres réutilisés).
+META_FAMILIES = ["stacking", "ensemble"]
+DEFAULT_STACKING_MEMBERS = ["logreg", "svm", "xgb"]
+
+# v2 : étage B de chaque famille (features.build_two_stage).
+FAMILY_PREP = {
+    "dummy": "onehot", "logreg": "onehot", "logreg_int": "onehot_cross",
+    "ebm": "native", "rf": "onehot", "brf": "onehot", "svm": "onehot", "xgb": "onehot",
+    "catboost": "native", "mlp": "native", "stacking": "onehot",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Familles lues dans la config (v1 par défaut)
+# --------------------------------------------------------------------------- #
+def model_families(cfg: dict[str, Any]) -> list[str]:
+    """Familles candidates, dans l'ordre de simplicité de la règle."""
+    return list(cfg["decision_rule"]["simplicity_order"])
+
+
+def tuned_families(cfg: dict[str, Any]) -> list[str]:
+    """Familles candidates qui ont un espace de recherche."""
+    return [f for f in model_families(cfg) if f in cfg["search_spaces"]]
+
+
+def fixed_families(cfg: dict[str, Any]) -> list[str]:
+    """Familles candidates évaluées sans tuning (ni méta, ni espace de recherche)."""
+    return [f for f in model_families(cfg)
+            if f not in cfg["search_spaces"] and f not in META_FAMILIES]
+
+
+def compared_sets(cfg: dict[str, Any]) -> list[str]:
+    """Feature sets de la comparaison principale (v1 : tous)."""
+    return list(cfg["features"].get("compared_sets", cfg["features"]["sets"]))
+
+
+def meta_members(family: str, cfg: dict[str, Any]) -> list[str]:
+    """Membres d'un stacking ou d'un ensemble."""
+    default = DEFAULT_STACKING_MEMBERS if family == "stacking" else []
+    return list(cfg["estimators"].get(family, {}).get("members", default))
+
+
+def prep_scheme(cfg: dict[str, Any]) -> str:
+    return cfg["preprocessing"].get("scheme", "shared_v1")
+
+
+def family_prep(family: str, cfg: dict[str, Any]) -> str:
+    """Étage B d'une famille ; un ensemble prend celui (commun) de ses membres."""
+    if family == "ensemble":
+        kinds = {FAMILY_PREP[m] for m in meta_members(family, cfg)}
+        assert len(kinds) == 1, f"membres de l'ensemble à prétraitements différents : {kinds}"
+        return kinds.pop()
+    return FAMILY_PREP[family]
 
 SCORE_PROBA = "predict_proba[:,1]"
 SCORE_DECISION = "decision_function"
@@ -139,10 +202,10 @@ class CellRateClassifier(ClassifierMixin, BaseEstimator):
 # Estimateurs et pipelines
 # --------------------------------------------------------------------------- #
 def build_estimator(family: str, cfg: dict[str, Any]) -> BaseEstimator:
-    """Estimateur nu d'une famille tunée, avec ses paramètres fixes."""
-    fixed = dict(cfg["estimators"].get(family, {}))
+    """Estimateur nu d'une famille, avec ses paramètres fixes."""
+    fixed = {k: v for k, v in cfg["estimators"].get(family, {}).items() if k != "members"}
     seed = eda.RANDOM_STATE
-    if family == "logreg":
+    if family in ("logreg", "logreg_int"):
         # Pénalité l2 = défaut de sklearn ('penalty' est déprécié depuis 1.8).
         return LogisticRegression(random_state=seed, **fixed)
     if family == "svm":
@@ -150,16 +213,45 @@ def build_estimator(family: str, cfg: dict[str, Any]) -> BaseEstimator:
         return SVC(**fixed)
     if family == "xgb":
         return XGBClassifier(random_state=seed, **fixed)
+    if family == "rf":
+        return RandomForestClassifier(random_state=seed, **fixed)
+    if family == "brf":
+        return BalancedRandomForestClassifier(random_state=seed, **fixed)
+    if family == "ebm":
+        return ExplainableBoostingClassifier(random_state=seed, **fixed)
+    if family == "catboost":
+        return ES.CatBoostNative(random_state=seed, **fixed)
+    if family == "mlp":
+        return ES.EmbeddingMLPClassifier(random_state=seed, **fixed)
     raise ValueError(f"famille inconnue : {family}")
+
+
+def build_prep(family: str, columns: Iterable[str], cfg: dict[str, Any], feature_set: str,
+               extra_drop: Iterable[str] = (), scheme: str | None = None) -> Any:
+    """Préprocesseur d'une famille : v1 partagé, ou v2 en deux étages."""
+    scheme = scheme or prep_scheme(cfg)
+    if scheme == "shared_v1":
+        return F.build_preprocessor(columns, cfg, feature_set, extra_drop)
+    assert scheme == "two_stage", f"schéma de prétraitement inconnu : {scheme}"
+    return F.build_two_stage(family_prep(family, cfg), columns, cfg, feature_set, extra_drop)
 
 
 def build_pipeline(family: str, columns: Iterable[str], cfg: dict[str, Any],
                    feature_set: str | None = None, extra_drop: Iterable[str] = (),
-                   best_params: dict[str, dict] | None = None) -> Pipeline:
+                   best_params: dict[str, dict] | None = None,
+                   scheme: str | None = None, oversample: bool = False) -> Pipeline:
     """Pipeline complet (prétraitement + estimateur) d'une famille ou baseline.
 
-    ``best_params`` (préfixés ``clf__``) n'est utilisé que pour le stacking, qui
-    réutilise les hyperparamètres retenus pour LR, SVM et XGBoost.
+    ``best_params`` : {famille: paramètres préfixés ``clf__``}. Le stacking et
+    l'ensemble y lisent les hyperparamètres retenus de leurs membres ; une
+    famille simple y lit les siens s'ils sont présents. ``scheme`` force le
+    schéma de prétraitement (référence ``logreg_v1`` en v2).
+
+    ``oversample=True`` (ablation ``smote_nc``, v2) : SMOTE-NC entre l'étage A
+    et la suite. Le pipeline devient ``prep`` = étage A, puis ``clf`` =
+    ``ResampledClassifier`` (rééchantillonnage au fit seulement) autour du
+    reste du prétraitement et de l'estimateur. Mêmes hyperparamètres que
+    sans rééchantillonnage.
     """
     columns = list(columns)
     feature_set = feature_set or cfg["features"]["reference_set"]
@@ -168,20 +260,50 @@ def build_pipeline(family: str, columns: Iterable[str], cfg: dict[str, Any],
         return Pipeline([("prep", ColumnSelector(cells)),
                          ("clf", CellRateClassifier(cells, random_state=eda.RANDOM_STATE))])
 
-    prep = F.build_preprocessor(columns, cfg, feature_set, extra_drop)
+    prep = build_prep(family, columns, cfg, feature_set, extra_drop, scheme)
     if family == "dummy":
         clf: BaseEstimator = DummyClassifier(strategy="prior")
     elif family == "stacking":
         clf = build_stacking(cfg, best_params or {})
+    elif family == "ensemble":
+        clf = build_ensemble(cfg, best_params or {})
     else:
         clf = build_estimator(family, cfg)
         if best_params and family in best_params:
             clf.set_params(**strip_prefix(best_params[family]))
+    if oversample:
+        return _oversampled(prep, clf, cfg)
     return Pipeline([("prep", prep), ("clf", clf)])
 
 
+def _oversampled(prep: Pipeline, clf: BaseEstimator, cfg: dict[str, Any]) -> Pipeline:
+    """Insère SMOTE-NC entre l'étage A et le reste du pipeline (train seul)."""
+    assert isinstance(prep, Pipeline) and prep.steps[0][0] == "clean", \
+        "SMOTE-NC : prétraitement en deux étages requis (v2)"
+    rest = prep.steps[1:]
+    inner = Pipeline(rest + [("est", clf)]) if rest else clf
+    sampler = ES.StageASMOTENC(random_state=eda.RANDOM_STATE,
+                               **cfg["ablation_settings"]["smote_nc"])
+    return Pipeline([("prep", prep.steps[0][1]),
+                     ("clf", ES.ResampledClassifier(inner, sampler))])
+
+
+def build_ensemble(cfg: dict[str, Any], best_params: dict[str, dict]) -> ES.RankAverageClassifier:
+    """Ensemble à composition fixée (config), membres avec leurs hyperparamètres retenus.
+
+    Les membres partagent l'étage A (vérifié par ``family_prep``) : l'ensemble
+    reçoit la sortie du prétraitement commun et la passe à chacun.
+    """
+    members = []
+    for family in meta_members("ensemble", cfg):
+        est = build_estimator(family, cfg)
+        est.set_params(**strip_prefix(best_params.get(family, {})))
+        members.append((family, est))
+    return ES.RankAverageClassifier(members)
+
+
 def build_stacking(cfg: dict[str, Any], best_params: dict[str, dict]) -> StackingClassifier:
-    """Stacking LR + SVM + XGBoost avec leurs hyperparamètres retenus.
+    """Stacking (v1 : LR + SVM + XGBoost) avec leurs hyperparamètres retenus.
 
     ``cross_val_predict`` (utilisé par le stacking pour les méta-features)
     n'accepte pas ``TimeSeriesSplit``, qui n'est pas une partition. Le cv
@@ -192,7 +314,7 @@ def build_stacking(cfg: dict[str, Any], best_params: dict[str, dict]) -> Stackin
     seed = eda.RANDOM_STATE
     params = cfg["estimators"]["stacking"]
     base = []
-    for family in TUNED_FAMILIES:
+    for family in meta_members("stacking", cfg):
         est = build_estimator(family, cfg)
         est.set_params(**strip_prefix(best_params.get(family, {})))
         base.append((family, est))

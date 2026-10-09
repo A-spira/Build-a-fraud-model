@@ -117,12 +117,57 @@ def make_scorers(ks: Iterable[float]) -> dict[str, RankingScorer]:
 # --------------------------------------------------------------------------- #
 # CV temporelle
 # --------------------------------------------------------------------------- #
-def make_splitter(cfg: dict[str, Any]) -> TimeSeriesSplit:
-    """Forward-chaining sur le train trié par PolicyNumber."""
-    return TimeSeriesSplit(n_splits=cfg["cv"]["n_splits"])
+class AnchoredTemporalSplit:
+    """CV temporelle ancrée (v2) : chaque fold apprend au moins sur ``initial_years``.
+
+    Les lignes (triées par ``PolicyNumber``) des années ``initial_years``
+    forment toujours le début du train. Les lignes suivantes sont découpées
+    en ``n_splits`` blocs contigus de même taille (à une ligne près) ; le fold
+    j valide sur le bloc j et apprend sur tout ce qui le précède. En v1
+    (``TimeSeriesSplit``), le fold 1 n'apprenait que sur 1 892 lignes ; ici le
+    plus petit train est une année complète, comme au déploiement.
+
+    Interface de splitter scikit-learn (``split``, ``get_n_splits``) :
+    utilisable par ``RandomizedSearchCV`` et ``cross_validate``. ``X`` doit
+    contenir la colonne ``year_col`` (elle n'est jamais une feature).
+    """
+
+    def __init__(self, n_splits: int = 4, initial_years: Iterable[int] = (1994,),
+                 year_col: str = "Year"):
+        self.n_splits = n_splits
+        self.initial_years = list(initial_years)
+        self.year_col = year_col
+
+    def split(self, X: pd.DataFrame, y: Any = None, groups: Any = None):
+        years = np.asarray(X[self.year_col])
+        initial = np.isin(years, self.initial_years)
+        n0 = int(initial.sum())
+        assert n0 > 0 and initial[:n0].all(), \
+            "les années initiales doivent former le début du train (lignes triées)"
+        for block in np.array_split(np.arange(n0, len(years)), self.n_splits):
+            yield np.arange(block[0]), block
+
+    def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
+        return self.n_splits
+
+    def __repr__(self) -> str:
+        return (f"AnchoredTemporalSplit(n_splits={self.n_splits}, "
+                f"initial_years={self.initial_years}, year_col={self.year_col!r})")
 
 
-def describe_folds(X: pd.DataFrame, y: pd.Series, splitter: TimeSeriesSplit,
+def make_splitter(cfg: dict[str, Any]) -> TimeSeriesSplit | AnchoredTemporalSplit:
+    """Splitter de la CV : forward-chaining (v1) ou ancré sur une année (v2)."""
+    cv = cfg["cv"]
+    scheme = cv.get("scheme", "forward_chaining")
+    if scheme == "forward_chaining":
+        return TimeSeriesSplit(n_splits=cv["n_splits"])
+    assert scheme == "anchored", f"schéma de CV inconnu : {scheme}"
+    return AnchoredTemporalSplit(n_splits=cv["n_splits"],
+                                 initial_years=cv["initial_train_years"],
+                                 year_col=cfg["split"]["year_col"])
+
+
+def describe_folds(X: pd.DataFrame, y: pd.Series, splitter: Any,
                    cfg: dict[str, Any]) -> pd.DataFrame:
     """Taille, nombre de fraudes et bornes temporelles de chaque fold.
 
@@ -156,7 +201,7 @@ def split_bounds(train: pd.DataFrame, test: pd.DataFrame,
             "n_train": len(train), "n_test": len(test)}
 
 
-def temporal_cv(pipe: Any, X: pd.DataFrame, y: pd.Series, splitter: TimeSeriesSplit,
+def temporal_cv(pipe: Any, X: pd.DataFrame, y: pd.Series, splitter: Any,
                 ks: Iterable[float], n_jobs: int = -1) -> tuple[pd.DataFrame, pd.Series]:
     """Scores par fold et prédictions out-of-fold, en un seul passage de fits.
 
@@ -229,7 +274,13 @@ BASELINE_STYLES = {"dummy": (MUTED, ":"), "business": (INK_2, "--")}
 FAMILY_LABELS = {"logreg": "Régression logistique", "svm": "SVM RBF", "xgb": "XGBoost",
                  "stacking": "Stacking", "dummy": "Baseline prior",
                  "business": "Baseline métier (Fault × BasePolicy)",
-                 "ablation_no_sex": "Modèle retenu sans Sex"}
+                 "ablation_no_sex": "Modèle retenu sans Sex",
+                 # v2
+                 "logreg_int": "Régression logistique + croisements", "ebm": "EBM",
+                 "rf": "Random Forest", "brf": "Balanced Random Forest",
+                 "catboost": "CatBoost", "mlp": "Réseau de neurones (embeddings)",
+                 "tabpfn": "TabPFN", "ensemble": "Ensemble (moyenne des rangs)",
+                 "logreg_v1": "Régression logistique v1 (retenue en v1)"}
 
 
 def model_label(key: str) -> str:
@@ -360,23 +411,31 @@ def _fold_test(cv_folds: pd.DataFrame, fold_info: pd.DataFrame, key_a: str, key_
     naive = paired_fold_ci(a, b, info["n_train"], info["n_val"], confidence, corrected=False)
     return {"model_a": key_a, "model_b": key_b, "metric": metric,
             "mean_diff": nb["mean_diff"], "ci_low": nb["ci_low"], "ci_high": nb["ci_high"],
-            "variance_factor": nb["variance_factor"],
+            "se": nb["se"], "variance_factor": nb["variance_factor"],
             "naive_ci_low": naive["ci_low"], "naive_ci_high": naive["ci_high"]}
 
 
 def select_on_cv(cv_folds: pd.DataFrame, fold_info: pd.DataFrame,
                  cfg: dict[str, Any]) -> dict[str, Any]:
-    """Étapes 1, 2 et 2 bis de la règle : sélection sur la CV du train SEULE.
+    """Étapes 1, 2 (et 2 bis en v1) de la règle : sélection sur la CV du train SEULE.
 
     1. meilleure PR-AUC moyenne sur le feature set de référence ;
-    2. parmi les modèles plus simples dont l'IC apparié (Nadeau-Bengio) de la
-       différence avec le meilleur contient 0, le plus simple ;
-    2 bis. ``feature_set_switch['to']`` seulement si son IC apparié face à
-       ``feature_set_switch['from']`` exclut 0 par le haut.
+    2. préférence pour la simplicité, selon ``decision_rule.simplicity_rule`` :
+       - ``ci_contains_zero`` (v1, défaut) : parmi les modèles plus simples dont
+         l'IC apparié (Nadeau-Bengio) de la différence avec le meilleur
+         contient 0, le plus simple ;
+       - ``one_se`` (v2) : le plus simple des modèles dont l'écart moyen au
+         meilleur (différences appariées par fold) est au plus UNE erreur-type
+         corrigée par Nadeau-Bengio (règle du 1-SE, Hastie et al., ESL §7.10) ;
+    2 bis (si ``feature_set_switch`` est configuré, v1). ``feature_set_switch['to']``
+       seulement si son IC apparié face à ``feature_set_switch['from']`` exclut 0
+       par le haut.
     """
     rule = cfg["decision_rule"]
     metric, order = rule["metric"], rule["simplicity_order"]
     confidence = rule["fold_test"]["confidence"]
+    method = rule.get("simplicity_rule", "ci_contains_zero")
+    assert method in ("ci_contains_zero", "one_se"), f"règle inconnue : {method}"
     ref = cfg["features"]["reference_set"]
 
     means = {fam: float(_fold_scores(cv_folds, M.model_key(fam, ref), metric).mean())
@@ -387,22 +446,28 @@ def select_on_cv(cv_folds: pd.DataFrame, fold_info: pd.DataFrame,
         test = _fold_test(cv_folds, fold_info, M.model_key(best, ref), M.model_key(fam, ref),
                           metric, confidence)
         test["contains_zero"] = bool(test["ci_low"] <= 0.0 <= test["ci_high"])
+        test["within_one_se"] = bool(test["mean_diff"] <= test["se"])
+        test["eligible"] = test["within_one_se" if method == "one_se" else "contains_zero"]
         comparisons.append(test)
     # `comparisons` suit l'ordre de simplicité : le premier éligible est le plus simple.
-    eligible = [c["model_b"] for c in comparisons if c["contains_zero"]]
+    eligible = [c["model_b"] for c in comparisons if c["eligible"]]
     retained_family = eligible[0].partition("__")[0] if eligible else best
 
-    switch = rule["feature_set_switch"]
-    fs_test = _fold_test(cv_folds, fold_info, M.model_key(retained_family, switch["to"]),
-                         M.model_key(retained_family, switch["from"]), metric, confidence)
-    fs_test["switch"] = bool(fs_test["ci_low"] > 0.0)
-    retained_fs = switch["to"] if fs_test["switch"] else switch["from"]
-    return {
-        "metric": metric, "reference_set": ref, "cv_means": means, "best_cv": best,
-        "comparisons": comparisons, "retained_family": retained_family,
-        "feature_set_test": fs_test, "retained_feature_set": retained_fs,
-        "retained_key": M.model_key(retained_family, retained_fs),
-    }
+    out = {"metric": metric, "reference_set": ref, "simplicity_rule": method,
+           "cv_means": means, "best_cv": best, "comparisons": comparisons,
+           "retained_family": retained_family}
+    switch = rule.get("feature_set_switch")
+    if switch:
+        fs_test = _fold_test(cv_folds, fold_info, M.model_key(retained_family, switch["to"]),
+                             M.model_key(retained_family, switch["from"]), metric, confidence)
+        fs_test["switch"] = bool(fs_test["ci_low"] > 0.0)
+        retained_fs = switch["to"] if fs_test["switch"] else switch["from"]
+        out["feature_set_test"] = fs_test
+    else:
+        retained_fs = ref
+    out["retained_feature_set"] = retained_fs
+    out["retained_key"] = M.model_key(retained_family, retained_fs)
+    return out
 
 
 # --------------------------------------------------------------------------- #

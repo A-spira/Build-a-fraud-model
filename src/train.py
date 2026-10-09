@@ -1,20 +1,24 @@
 """Bloc 2 — CLI : tuning et CV temporelle de chaque modèle, suivi MLflow.
 
 Usage :
-    python src/train.py --config configs/bloc2.yaml [--smoke]
+    python src/train.py --config configs/bloc2.yaml [--smoke]      # v1
+    python src/train.py --config configs/bloc2_v2.yaml [--smoke]   # v2
 
-Pour chaque feature set : ``RandomizedSearchCV`` (même splitter temporel, même
-budget, même seed) pour LR, SVM et XGBoost, puis stacking sur leurs
-hyperparamètres retenus. Viennent ensuite les deux baselines. Chaque meilleure
-configuration est réévaluée par ``cross_validate`` avec toutes les métriques,
-et on collecte ses prédictions out-of-fold. Le pipeline final, refitté sur
-tout le train (1994-95), est sauvegardé dans ``models/``.
+Pour chaque feature set comparé : ``RandomizedSearchCV`` (même splitter
+temporel, même budget, même seed) pour chaque famille qui a un espace de
+recherche, évaluation directe des familles sans tuning, puis les familles méta
+(stacking, ensemble) sur les hyperparamètres retenus de leurs membres.
+Viennent ensuite les baselines et les références (v2 : ``logreg_v1``). Chaque
+meilleure configuration est réévaluée par ``cross_validate`` avec toutes les
+métriques, et on collecte ses prédictions out-of-fold. Le pipeline final,
+refitté sur tout le train (1994-95), est sauvegardé dans ``models_dir``.
 
 Ce script ne lit jamais la cible du holdout : les lignes de 1996 ne servent
 qu'à journaliser les bornes du split (PolicyNumber min/max).
 
-``--smoke`` : ``n_iter`` réduit, sorties dans ``build/smoke`` et expérience
-MLflow séparée. Sert à valider la chaîne, jamais à conclure.
+``--smoke`` : ``n_iter`` réduit, sorties dans ``smoke_dir`` et expérience
+MLflow séparée. Sert à valider la chaîne, jamais à conclure : les métriques ne
+sont pas affichées (elles portent sur les folds de la règle pré-enregistrée).
 """
 from __future__ import annotations
 
@@ -98,15 +102,16 @@ class Trainer:
     def run(self) -> None:
         T.setup_experiment(self.cfg, self.smoke)
         print(self.fold_info.to_string(index=False))
-        for fs in self.cfg["features"]["sets"]:
+        for fs in M.compared_sets(self.cfg):
             tuned: dict[str, dict[str, Any]] = {}
-            for family in M.TUNED_FAMILIES:
+            for family in M.tuned_families(self.cfg):
                 tuned[family] = self.tune(family, fs)
-            stack = M.build_pipeline("stacking", self.X.columns, self.cfg, fs, best_params=tuned)
-            params = {f"{fam}.{k}": v for fam in M.TUNED_FAMILIES
-                      for k, v in M.strip_prefix(tuned[fam]).items()}
-            params.update({f"stacking.{k}": v for k, v in self.cfg["estimators"]["stacking"].items()})
-            self.evaluate_and_log(M.model_key("stacking", fs), "stacking", fs, stack, params)
+            for family in M.fixed_families(self.cfg):
+                pipe = M.build_pipeline(family, self.X.columns, self.cfg, fs)
+                self.evaluate_and_log(M.model_key(family, fs), family, fs, pipe,
+                                      dict(self.cfg["estimators"].get(family, {})))
+            for family in [f for f in M.model_families(self.cfg) if f in M.META_FAMILIES]:
+                self.meta(family, fs, tuned)
         ref = self.cfg["features"]["reference_set"]
         dummy = M.build_pipeline("dummy", self.X.columns, self.cfg, ref)
         self.evaluate_and_log("dummy", "dummy", None, dummy, {"strategy": "prior"})
@@ -114,7 +119,27 @@ class Trainer:
         self.evaluate_and_log("business", "business", None, business,
                               {"cells": " x ".join(self.cfg["baselines"]["business_cells"]),
                                "tie_break": True})
+        for name, spec in self.cfg.get("references", {}).items():
+            pipe = M.build_pipeline(spec["family"], self.X.columns, self.cfg, spec["feature_set"],
+                                    best_params={spec["family"]: {f"clf__{k}": v for k, v
+                                                                  in spec["params"].items()}},
+                                    scheme=spec.get("preprocessing"))
+            self.evaluate_and_log(name, name, spec["feature_set"], pipe,
+                                  {**spec["params"], "family": spec["family"],
+                                   "preprocessing": spec.get("preprocessing", "config")})
         self.write_outputs()
+
+    def meta(self, family: str, fs: str, tuned: dict[str, dict[str, Any]]) -> None:
+        """Stacking ou ensemble : membres avec leurs hyperparamètres retenus."""
+        members = M.meta_members(family, self.cfg)
+        missing = [m for m in members if m not in tuned]
+        assert not missing, f"{family} : membres sans hyperparamètres retenus {missing}"
+        pipe = M.build_pipeline(family, self.X.columns, self.cfg, fs, best_params=tuned)
+        params = {f"{fam}.{k}": v for fam in members
+                  for k, v in M.strip_prefix(tuned[fam]).items()}
+        params.update({f"{family}.{k}": (",".join(v) if isinstance(v, list) else v)
+                       for k, v in self.cfg["estimators"][family].items()})
+        self.evaluate_and_log(M.model_key(family, fs), family, fs, pipe, params)
 
     def tune(self, family: str, fs: str) -> dict[str, Any]:
         """RandomizedSearchCV puis évaluation complète de la meilleure config."""
@@ -131,7 +156,7 @@ class Trainer:
         best = to_jsonable(search.best_params_)
         self.best_params[key] = best
         params = dict(M.strip_prefix(best))
-        params.update(self.cfg["estimators"][family])
+        params.update(self.cfg["estimators"].get(family, {}))
         params["n_iter"] = M.effective_n_iter(space, self.n_iter)
         self.evaluate_and_log(key, family, fs, clone(search.best_estimator_), params,
                               fitted=search.best_estimator_,
@@ -158,7 +183,8 @@ class Trainer:
         self.fold_rows.append(folds)
         self.oof[key] = oof
 
-        kind = "baseline" if family in M.BASELINES else "model"
+        kind = ("baseline" if family in M.BASELINES
+                else "reference" if family in self.cfg.get("references", {}) else "model")
         with mlflow.start_run(run_name=key) as run:
             mlflow.set_tags(T.run_tags(self.cfg, family, fs, kind, self.smoke))
             mlflow.set_tag("score_type", M.score_type(fitted))
@@ -188,9 +214,13 @@ class Trainer:
             "family": family, "feature_set": fs, "score_type": M.score_type(fitted),
             "n_features_out": n_features, "git_commit": T.git_commit(), **self.bounds,
         }
-        print(f"[{key}] PR-AUC CV = {summary['pr_auc_mean']:.4f} "
-              f"± {summary['pr_auc_std']:.4f} | {self.timings.get(f'{key}_search', 0):.0f}s "
-              f"tuning + {self.timings[f'{key}_cv']:.0f}s CV", flush=True)
+        timing = (f"{self.timings.get(f'{key}_search', 0):.0f}s tuning + "
+                  f"{self.timings[f'{key}_cv']:.0f}s CV")
+        if self.smoke:      # pas de métrique affichée avant le pré-enregistrement
+            print(f"[{key}] OK | {timing}", flush=True)
+        else:
+            print(f"[{key}] PR-AUC CV = {summary['pr_auc_mean']:.4f} "
+                  f"± {summary['pr_auc_std']:.4f} | {timing}", flush=True)
 
     # ----------------------------------------------------------------------- #
     def write_outputs(self) -> None:
@@ -217,7 +247,8 @@ class Trainer:
         (self.dirs["models_dir"] / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
         ref = self.cfg["features"]["reference_set"]
-        keys = [M.model_key(f, ref) for f in M.MODEL_FAMILIES] + M.BASELINES
+        keys = ([M.model_key(f, ref) for f in M.model_families(self.cfg)] + M.BASELINES
+                + list(self.cfg.get("references", {})))
         figs = {
             "cv_pr_auc_by_fold.png": E.plot_fold_scores(
                 cv_folds, "pr_auc", keys, f"PR-AUC par fold temporel ({ref})"),
@@ -239,6 +270,8 @@ def main() -> None:
     parser.add_argument("--smoke", action="store_true", help="n_iter réduit, sorties dans build/smoke")
     args = parser.parse_args()
     cfg = F.load_config(args.config)
+    if not args.smoke:
+        T.check_preregistered(cfg)
     np.random.seed(eda.RANDOM_STATE)
     Trainer(cfg, args.config.resolve(), args.smoke).run()
 

@@ -6,6 +6,7 @@ PYTHON ?= python3.12
 VENV   := .venv
 PY     := $(VENV)/bin/python
 CONFIG := configs/bloc2.yaml
+CONFIG_V2 := configs/bloc2_v2.yaml
 NBEXEC := $(PY) -m jupyter nbconvert --to notebook --execute \
           --ExecutePreprocessor.kernel_name=python3 \
           --ExecutePreprocessor.timeout=1800 \
@@ -18,7 +19,7 @@ export MLFLOW_DISABLE_AGENT_HINT := 1
 # « python3 » d'un autre environnement (conda, utilisateur) qui le masquerait.
 export JUPYTER_PATH := $(CURDIR)/$(VENV)/share/jupyter
 
-.PHONY: install eda smoke train holdout report test mlflow-ui all
+.PHONY: install eda smoke train holdout report test mlflow-ui all smoke-v2 train-v2
 
 install:
 	$(PYTHON) -m venv $(VENV)
@@ -46,6 +47,15 @@ holdout:
 report:
 	$(PY) src/report.py --config $(CONFIG)
 	$(NBEXEC) --inplace notebooks/02_model_comparison.ipynb
+
+# v2 (configs/bloc2_v2.yaml) : sorties dans reports/v2, models/v2, build/v2.
+# smoke-v2 n'affiche aucune métrique ; train-v2 refuse de tourner tant que la
+# règle v2 n'est pas commitée (tracking.check_preregistered).
+smoke-v2:
+	$(PY) src/train.py --config $(CONFIG_V2) --smoke
+
+train-v2:
+	$(PY) src/train.py --config $(CONFIG_V2)
 
 test:
 	$(PY) -m pytest -q tests

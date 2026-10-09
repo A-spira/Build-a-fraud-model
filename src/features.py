@@ -4,6 +4,13 @@ Sélection des colonnes, sentinelles, regroupement des modalités rares et
 construction du ``ColumnTransformer`` unique (même prétraitement pour LR, SVM,
 XGBoost et stacking).
 
+v2 (``preprocessing.scheme: two_stage``) : un étage A commun à toutes les
+familles applique le contrat du bloc 1 (sentinelles, fusion des rares, ordre
+métier, imputation) et garde les catégories nominales en texte ; un étage B
+propre à chaque famille les encode comme l'algorithme sait les consommer
+(one-hot + standardisation, ou catégories natives). Le préprocesseur v1
+(``build_preprocessor``) est conservé tel quel pour reproduire la v1.
+
 Contrat d'interface (bloc 4) : le pipeline reçoit un DataFrame aux colonnes
 BRUTES du CSV, hors cible, tel que ``pd.read_csv`` le produit. Tout nettoyage
 (sentinelle '0' des dates, ``Age == 0``, modalités rares ou inconnues) vit donc
@@ -22,7 +29,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from sklearn.base import BaseEstimator, OneToOneFeatureMixin, TransformerMixin
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
@@ -36,6 +43,12 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "bloc2.yaml"
 # Âge : seule variable continue (eda.CONTINUOUS_COLS). 0 = sentinelle « 16-17
 # ans » (EDA §1.3), à traiter comme manquant et non comme un âge.
 AGE_SENTINEL = 0
+
+# v2, étage A : modalité nominale rare ou inconnue, et valeur manquante.
+INFREQUENT_LEVEL = "__infrequent__"
+MISSING_LEVEL = "__missing__"
+# Séparateur des modalités d'un croisement (logreg_int) : « Fault*BasePolicy ».
+CROSS_SEP = "*"
 
 
 # --------------------------------------------------------------------------- #
@@ -321,11 +334,181 @@ def build_preprocessor(columns: Iterable[str], cfg: dict[str, Any], feature_set:
     )
 
 
-def used_columns(preprocessor: ColumnTransformer) -> list[str]:
-    """Colonnes brutes effectivement consommées par un préprocesseur fitté."""
+def used_columns(preprocessor: Any) -> list[str]:
+    """Colonnes brutes effectivement consommées par un préprocesseur fitté.
+
+    Accepte le ``ColumnTransformer`` v1 ou le ``Pipeline`` v2 (étage ``clean``).
+    """
+    if isinstance(preprocessor, Pipeline):
+        preprocessor = preprocessor.named_steps["clean"]
     check_is_fitted(preprocessor)
     cols: list[str] = []
     for name, _, selected in preprocessor.transformers_:
         if name != "remainder":
             cols.extend(selected)
     return cols
+
+
+# --------------------------------------------------------------------------- #
+# v2 — prétraitement en deux étages
+# --------------------------------------------------------------------------- #
+class RareCategoryGrouper(_FittedColumnsMixin, OneToOneFeatureMixin, TransformerMixin,
+                          BaseEstimator):
+    """Regroupe les modalités nominales rares ou inconnues (appris sur le train).
+
+    Une valeur manquante devient ``MISSING_LEVEL`` et compte comme une modalité.
+    Une modalité de moins de ``min_count`` lignes au fit, ou jamais vue,
+    devient ``INFREQUENT_LEVEL`` : même seuil et même logique que le one-hot
+    v1 (``min_frequency``), mais les catégories restent en texte pour les
+    familles qui les consomment nativement (CatBoost, EBM, réseau de neurones).
+    """
+
+    def __init__(self, min_count: int = 30):
+        self.min_count = min_count
+
+    @staticmethod
+    def _labels(values: Iterable[Any]) -> list[str]:
+        out = []
+        for v in values:
+            v = normalize_level(v)
+            out.append(MISSING_LEVEL if not isinstance(v, str) else v)
+        return out
+
+    def fit(self, X: Any, y: Any = None) -> "RareCategoryGrouper":
+        X = _as_frame(X)
+        self._remember_columns(X)
+        self.kept_levels_: dict[str, set[str]] = {}
+        for col in X.columns:
+            counts = pd.Series(self._labels(X[col])).value_counts()
+            self.kept_levels_[col] = set(counts[counts >= self.min_count].index)
+        return self
+
+    def transform(self, X: Any) -> np.ndarray:
+        check_is_fitted(self, "kept_levels_")
+        X = _as_frame(X, self.feature_names_in_)
+        out = np.empty(X.shape, dtype=object)
+        for k, col in enumerate(self.feature_names_in_):
+            kept = self.kept_levels_[col]
+            out[:, k] = [v if v in kept else INFREQUENT_LEVEL for v in self._labels(X[col])]
+        return out
+
+
+class CrossFeatures(TransformerMixin, BaseEstimator):
+    """Ajoute le croisement de paires de colonnes catégorielles (``a*b``).
+
+    Sert à ``logreg_int`` : une LR additive ne peut pas représenter une
+    cellule ``Fault`` x ``BasePolicy`` ; on lui donne la cellule comme une
+    modalité de plus, que l'étage B encode en one-hot.
+    """
+
+    def __init__(self, pairs: Iterable[Iterable[str]] = ()):
+        self.pairs = pairs
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> "CrossFeatures":
+        missing = [c for pair in self.pairs for c in pair if c not in X.columns]
+        assert not missing, f"colonnes à croiser absentes : {missing}"
+        self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        self.n_features_in_ = X.shape[1]
+        return self
+
+    def cross_names(self) -> list[str]:
+        return [CROSS_SEP.join(pair) for pair in self.pairs]
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        check_is_fitted(self, "n_features_in_")
+        X = X[list(self.feature_names_in_)].copy()
+        for pair, name in zip(self.pairs, self.cross_names()):
+            parts = [X[c].astype(str) for c in pair]
+            cross = parts[0]
+            for part in parts[1:]:
+                cross = cross + CROSS_SEP + part
+            X[name] = cross.astype(object)
+        return X
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        check_is_fitted(self, "n_features_in_")
+        return np.asarray(list(self.feature_names_in_) + self.cross_names(), dtype=object)
+
+
+def build_clean_stage(columns: Iterable[str], cfg: dict[str, Any], feature_set: str,
+                      extra_drop: Iterable[str] = ()) -> ColumnTransformer:
+    """Étage A (v2), commun à toutes les familles : le contrat du bloc 1.
+
+    - ordinales : fusion des rares -> codes dans l'ordre métier -> imputation
+      par la modalité la plus fréquente (ligne de date '0') ;
+    - nominales : texte canonique, modalités rares ou inconnues regroupées ;
+    - âge : 0 -> ``NaN`` -> médiane + indicateur de manquant.
+
+    Sortie : DataFrame aux noms de colonnes BRUTS (ordinales et âge en
+    nombres, nominales en texte). Pas de standardisation : elle relève de
+    l'étage B des familles qui en ont besoin.
+    """
+    groups = feature_groups(columns, cfg, feature_set, extra_drop)
+    threshold = cfg["preprocessing"]["rare_threshold"]
+    ordinal_categories = [[normalize_level(v) for v in eda.ORDINAL_ORDERS[c]]
+                          for c in groups["ordinal"]]
+    ordinal = Pipeline([
+        ("merge", RareLevelMerger(min_count=threshold)),
+        ("encode", OrdinalEncoder(categories=ordinal_categories,
+                                  handle_unknown="use_encoded_value",
+                                  unknown_value=np.nan,
+                                  encoded_missing_value=np.nan)),
+        ("impute", SimpleImputer(strategy="most_frequent")),
+    ])
+    nominal = Pipeline([
+        ("labels", CategoryLabels()),
+        ("group", RareCategoryGrouper(min_count=threshold)),
+    ])
+    age = Pipeline([
+        ("sentinel", SentinelToNaN(AGE_SENTINEL)),
+        ("impute", SimpleImputer(strategy="median", add_indicator=True)),
+    ])
+    clean = ColumnTransformer(
+        [("ord", ordinal, groups["ordinal"]),
+         ("nom", nominal, groups["nominal"]),
+         ("age", age, groups["continuous"])],
+        remainder="drop",
+        verbose_feature_names_out=False,
+    )
+    return clean.set_output(transform="pandas")
+
+
+def build_onehot_stage(cfg: dict[str, Any]) -> ColumnTransformer:
+    """Étage B « one-hot » (LR, SVM, forêts, XGBoost) : sélection par type.
+
+    Colonnes texte (nominales et croisements) -> one-hot, modalités de moins de
+    ``rare_threshold`` lignes en « infrequent » ; colonnes numériques
+    (ordinales, âge, indicateur) -> standardisation.
+    """
+    threshold = cfg["preprocessing"]["rare_threshold"]
+    return ColumnTransformer(
+        [("num", StandardScaler(), make_column_selector(dtype_include="number")),
+         ("nom", OneHotEncoder(min_frequency=threshold,
+                               handle_unknown="infrequent_if_exist",
+                               sparse_output=False),
+          make_column_selector(dtype_exclude="number"))],
+        remainder="drop",
+        verbose_feature_names_out=True,
+    )
+
+
+PREP_KINDS = ("onehot", "onehot_cross", "native")
+
+
+def build_two_stage(kind: str, columns: Iterable[str], cfg: dict[str, Any],
+                    feature_set: str, extra_drop: Iterable[str] = ()) -> Pipeline:
+    """Préprocesseur v2 d'une famille : étage A, croisements éventuels, étage B.
+
+    - ``onehot`` : A -> one-hot + standardisation ;
+    - ``onehot_cross`` : A -> croisements du feature set -> one-hot + standardisation ;
+    - ``native`` : A seul ; l'estimateur reçoit les catégories en texte.
+    """
+    assert kind in PREP_KINDS, f"prétraitement inconnu : {kind}"
+    steps: list[tuple[str, Any]] = [("clean", build_clean_stage(columns, cfg, feature_set,
+                                                                 extra_drop))]
+    if kind == "onehot_cross":
+        pairs = cfg["features"]["sets"][feature_set].get("interactions", [])
+        steps.append(("cross", CrossFeatures(pairs)))
+    if kind in ("onehot", "onehot_cross"):
+        steps.append(("encode", build_onehot_stage(cfg)))
+    return Pipeline(steps)
