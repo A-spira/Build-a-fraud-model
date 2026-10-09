@@ -4,9 +4,13 @@
 > `configs/bloc2_v2.yaml` deviennent la règle v2 au commit qui les fige,
 > **avant** la CV complète v2 et avant la seconde lecture de 1996
 > (`git log --follow reports/bloc2_v2_decisions.md` fera foi). Avant ce
-> commit, seuls des passages *smoke* tournent (`src/train.py --smoke`), pour
-> valider la chaîne. Ils n'affichent aucune métrique et leurs sorties ne sont
-> pas lues.
+> commit, seuls des passages de validation de la chaîne ont tourné. Aucun
+> n'affiche de métrique, et leurs sorties ne sont pas lues : le *smoke*
+> (`make smoke-v2`, 3 configurations par famille), le smoke de l'ablation
+> SMOTE-NC, et le pseudo-holdout 1994 → 1995 (`holdout.py --pseudo`), dont les
+> métriques sont masquées parce que 1995 contient les blocs de validation de la
+> CV. Le test de faisabilité de TabPFN (§4) n'a calculé aucune métrique de
+> performance.
 >
 > **Aucun résultat v2 ici.** Les paramètres cités viennent de
 > `configs/bloc2_v2.yaml`, qui fait foi. Les chiffres v1 cités viennent de
@@ -203,11 +207,21 @@ le holdout, avec les mêmes hyperparamètres que le modèle retenu.
   vérifient que deux fits donnent des scores identiques pour chaque nouvelle
   famille.
 - **Interface bloc 4 inchangée** : chaque pipeline prend une ligne brute du CSV
-  et renvoie `predict_proba[:, 1]`. Tous les modèles se clonent et se
+  et renvoie un score brut (`predict_proba[:, 1]`, ou `decision_function` pour
+  le SVM, comme en v1). Tous les modèles se clonent et se
   sérialisent (joblib, MLflow), et les modalités inconnues ne font pas planter
   le scoring (tests).
 - **Dépendances épinglées** : catboost, interpret-core, imbalanced-learn et
   torch, ajoutés à `requirements.txt`.
+- **Une commande pour l'exécution complète** : `caffeinate -i make night-v2`
+  enchaîne `train-v2`, `determinism-v2` (un second `train-v2` comparé au
+  premier à l'octet près ; la suite s'arrête au moindre écart), `holdout-v2`
+  (refusé tant que la règle n'est pas gelée) et `report-v2` (rapport et
+  notebook 03, chaque chiffre relu dans MLflow).
+- **v1 intacte** : avec le code v2, `train` et `holdout` v1 redonnent leurs
+  sorties à l'octet près (vérifié avant le gel, sorties isolées dans
+  `build/`). Seules des clés ont été ajoutées aux JSON de décision
+  (`simplicity_rule`, `se`, `ablations_cv`).
 
 ## 8. Limites connues (à garder en tête à l'oral)
 
