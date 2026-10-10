@@ -306,11 +306,16 @@ class HoldoutEvaluation:
                 f"retenu = {E.model_label(retained)}, holdout {year}",
                 reference=0.0, width=width),
         }
-        if self.by_role:     # v2 : scores par fold, une fois le retenu connu
+        if self.by_role:     # v2 : figures CV, une fois le retenu connu
             cv_folds = pd.read_csv(self.cv_dir / "cv_folds.csv")
             figs["cv_pr_auc_by_fold.png"] = E.plot_fold_scores(
                 cv_folds, metric, candidates + bars,
                 f"PR-AUC par fold de la CV ancrée ({ref})", styles=styles)
+            oof = pd.read_csv(self.cv_dir.parent / "predictions" / "oof_scores.csv")
+            figs["cv_oof_pr_curves.png"] = E.plot_pr_curves(
+                oof["y"], {k: oof[k] for k in curve_keys},
+                "Courbes PR out-of-fold, poolées sur les folds de validation (1995)",
+                styles=styles)
         for name, fig in figs.items():
             fig.savefig(self.dirs["figures"] / name, dpi=150, facecolor=E.SURFACE,
                         metadata={"Software": None})

@@ -249,13 +249,18 @@ class Trainer:
         ref = self.cfg["features"]["reference_set"]
         keys = ([M.model_key(f, ref) for f in M.model_families(self.cfg)] + M.BASELINES
                 + list(self.cfg.get("references", {})))
-        figs = {
-            "cv_pr_auc_by_fold.png": E.plot_fold_scores(
-                cv_folds, "pr_auc", keys, f"PR-AUC par fold temporel ({ref})"),
-            "cv_oof_pr_curves.png": E.plot_pr_curves(
-                oof["y"], {k: oof[k] for k in keys},
-                f"Courbes PR out-of-fold, poolées sur les {len(self.fold_info)} folds de validation ({ref})"),
-        }
+        # Plus de familles que de couleurs (v2) : les figures CV sont dessinées
+        # par holdout.py, une fois le modèle retenu connu (styles par rôle).
+        if len(M.model_families(self.cfg)) > len(E.FAMILY_COLORS):
+            figs = {}
+        else:
+            figs = {
+                "cv_pr_auc_by_fold.png": E.plot_fold_scores(
+                    cv_folds, "pr_auc", keys, f"PR-AUC par fold temporel ({ref})"),
+                "cv_oof_pr_curves.png": E.plot_pr_curves(
+                    oof["y"], {k: oof[k] for k in keys},
+                    f"Courbes PR out-of-fold, poolées sur les {len(self.fold_info)} folds de validation ({ref})"),
+            }
         for name, fig in figs.items():
             fig.savefig(self.dirs["figures_dir"] / name, dpi=150, facecolor=E.SURFACE,
                         metadata={"Software": None})
