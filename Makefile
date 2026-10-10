@@ -20,7 +20,7 @@ export MLFLOW_DISABLE_AGENT_HINT := 1
 export JUPYTER_PATH := $(CURDIR)/$(VENV)/share/jupyter
 
 .PHONY: install eda smoke train holdout report test mlflow-ui all smoke-v2 train-v2 \
-        holdout-v2 report-v2 determinism-v2 night-v2
+        holdout-v2 report-v2 determinism-v2 night-v2 decision-v2
 
 install:
 	$(PYTHON) -m venv $(VENV)
@@ -79,6 +79,11 @@ determinism-v2:
 	  cmp $(V2_RUN1)/$$f $(V2_RESULTS)/$$f || exit 1; done
 	cmp $(V2_RUN1)/oof_scores.csv reports/v2/predictions/oof_scores.csv
 	@echo "Déterminisme v2 : deux train-v2 identiques à l'octet près."
+
+# Matrice de décision multicritère (aide au choix de déploiement du bloc 4).
+# Relit la latence enregistrée ; `--measure` la remesure.
+decision-v2:
+	$(PY) src/decision_matrix.py --config configs/decision_matrix_v2.yaml
 
 # La nuit, sans mise en veille :  caffeinate -i make night-v2
 # CV complète, contrôle du déterminisme, puis lecture unique de 1996 et rapport.
