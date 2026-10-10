@@ -1,0 +1,19 @@
+{
+  "logreg__fs_basepolicy": "predict_proba[:,1]",
+  "logreg_int__fs_basepolicy": "predict_proba[:,1]",
+  "ebm__fs_basepolicy": "predict_proba[:,1]",
+  "rf__fs_basepolicy": "predict_proba[:,1]",
+  "brf__fs_basepolicy": "predict_proba[:,1]",
+  "svm__fs_basepolicy": "decision_function",
+  "xgb__fs_basepolicy": "predict_proba[:,1]",
+  "catboost__fs_basepolicy": "predict_proba[:,1]",
+  "mlp__fs_basepolicy": "predict_proba[:,1]",
+  "stacking__fs_basepolicy": "predict_proba[:,1]",
+  "ensemble__fs_basepolicy": "predict_proba[:,1]",
+  "dummy": "predict_proba[:,1]",
+  "business": "predict_proba[:,1]",
+  "logreg_v1": "predict_proba[:,1]",
+  "ablation_no_sex": "predict_proba[:,1]",
+  "ablation_fs_policytype": "predict_proba[:,1]",
+  "ablation_smote_nc": "predict_proba[:,1]"
+}

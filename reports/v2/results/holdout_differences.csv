@@ -1,0 +1,17 @@
+model_a,model_b,metric,diff,ci_low,ci_high,verdict,comparison
+rf__fs_basepolicy,logreg__fs_basepolicy,pr_auc,0.037593377696620495,0.00458080945747021,0.07361755732987103,a > b,retenu_vs_autres
+rf__fs_basepolicy,logreg_int__fs_basepolicy,pr_auc,0.03701877142874184,0.003739842188460844,0.07291781648352011,a > b,retenu_vs_autres
+rf__fs_basepolicy,ebm__fs_basepolicy,pr_auc,0.002776153620438565,-0.008876092923026149,0.01650660979471443,non significatif,retenu_vs_autres
+rf__fs_basepolicy,brf__fs_basepolicy,pr_auc,0.006648932406843194,-0.006697407233461803,0.020316685857199625,non significatif,retenu_vs_autres
+rf__fs_basepolicy,svm__fs_basepolicy,pr_auc,0.030956024517159272,0.006422683834950753,0.054018376800611057,a > b,retenu_vs_autres
+rf__fs_basepolicy,xgb__fs_basepolicy,pr_auc,0.006598269592972522,-0.004070081510999006,0.018904198760318822,non significatif,retenu_vs_autres
+rf__fs_basepolicy,catboost__fs_basepolicy,pr_auc,0.00365567169774067,-0.005787831889262668,0.016459874929071246,non significatif,retenu_vs_autres
+rf__fs_basepolicy,mlp__fs_basepolicy,pr_auc,0.009381682122957952,-0.011228841689341048,0.02618106622669473,non significatif,retenu_vs_autres
+rf__fs_basepolicy,stacking__fs_basepolicy,pr_auc,0.007562194662462884,-0.0055606561638657055,0.02208789163704213,non significatif,retenu_vs_autres
+rf__fs_basepolicy,ensemble__fs_basepolicy,pr_auc,0.0014249661852865636,-0.00912538116799992,0.013811708107345732,non significatif,retenu_vs_autres
+rf__fs_basepolicy,dummy,pr_auc,0.0852529375147935,0.0565678768766464,0.12419061465128452,a > b,retenu_vs_autres
+rf__fs_basepolicy,business,pr_auc,0.032120782362745445,-0.0004986064115614017,0.07072479030700489,non significatif,retenu_vs_autres
+rf__fs_basepolicy,logreg_v1,pr_auc,0.037593377696620495,0.00458080945747021,0.07361755732987103,a > b,retenu_vs_autres
+ablation_no_sex,rf__fs_basepolicy,pr_auc,-0.001218965114376802,-0.00535497510536302,0.002655259862658826,non significatif,ablation_no_sex
+ablation_fs_policytype,rf__fs_basepolicy,pr_auc,0.004416764042672938,9.40374150521317e-05,0.009853879756773187,a > b,ablation_fs_policytype
+ablation_smote_nc,rf__fs_basepolicy,pr_auc,-0.01957705352998687,-0.041648992069743734,0.002772446828651792,non significatif,ablation_smote_nc
