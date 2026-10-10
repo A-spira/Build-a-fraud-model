@@ -280,7 +280,9 @@ FAMILY_LABELS = {"logreg": "Régression logistique", "svm": "SVM RBF", "xgb": "X
                  "rf": "Random Forest", "brf": "Balanced Random Forest",
                  "catboost": "CatBoost", "mlp": "Réseau de neurones (embeddings)",
                  "tabpfn": "TabPFN", "ensemble": "Ensemble (moyenne des rangs)",
-                 "logreg_v1": "Régression logistique v1 (retenue en v1)"}
+                 "logreg_v1": "Régression logistique v1 (retenue en v1)",
+                 "ablation_fs_policytype": "Modèle retenu sur fs_policytype",
+                 "ablation_smote_nc": "Modèle retenu avec SMOTE-NC"}
 
 
 def model_label(key: str) -> str:
@@ -334,7 +336,8 @@ def role_styles(keys: Iterable[str], retained: str, best_cv: str,
     """Styles par rôle quand il y a trop de familles pour une couleur chacune (v2).
 
     Retenu en bleu, meilleur en CV en orange (couleurs 1 et 2 de la palette),
-    barres à battre (baselines, référence v1) en gris foncé et tirets,
+    barres à battre en gris (prior en pointillés, métier en tirets, référence
+    v1 en trait mixte),
     toutes les autres familles en gris clair, fines et regroupées sous une
     seule entrée de légende « autres familles ».
     """
@@ -347,8 +350,8 @@ def role_styles(keys: Iterable[str], retained: str, best_cv: str,
             out[key] = {"color": FAMILY_COLORS["svm"], "linestyle": "-"}
         elif key in bars:
             out[key] = {**model_style(key), "color": MUTED if key == "dummy" else INK_2}
-            if key not in BASELINE_STYLES:
-                out[key]["linestyle"] = "--"
+            if key not in BASELINE_STYLES:      # référence (p.ex. LR v1) : trait mixte
+                out[key]["linestyle"] = "-."
         else:
             out[key] = {"color": AXIS, "linestyle": "-", "linewidth": 1,
                         "label": "_nolegend_" if other_labelled else "Autres familles"}
@@ -403,13 +406,13 @@ def plot_fold_scores(cv_folds: pd.DataFrame, metric: str, keys: list[str],
 
 
 def plot_intervals(table: pd.DataFrame, xlabel: str, title: str,
-                   reference: float | None = None) -> Figure:
+                   reference: float | None = None, width: float = 7.5) -> Figure:
     """Estimation ponctuelle + IC à 95 % par ligne.
 
     Colonnes : key, point, ci_low, ci_high ; optionnelles : label, color.
     """
     table = table.reset_index(drop=True)
-    fig, ax = plt.subplots(figsize=(7.5, 0.45 * len(table) + 1.4), facecolor=SURFACE)
+    fig, ax = plt.subplots(figsize=(width, 0.45 * len(table) + 1.4), facecolor=SURFACE)
     ypos = np.arange(len(table))[::-1]
     for yy, (_, row) in zip(ypos, table.iterrows()):
         color = row["color"] if pd.notna(row.get("color")) else model_style(row["key"])["color"]

@@ -292,18 +292,19 @@ class HoldoutEvaluation:
         mine["point"] = mine["diff"]
         mine["label"] = [f"retenu − {E.model_label(k)}" for k in mine["model_b"]]
         mine["color"] = [color(k) for k in mine["key"]]
+        width = 9.0 if self.by_role else 7.5     # libellés longs en v2
         figs = {
             "holdout_pr_curves.png": E.plot_pr_curves(
                 y_te, {k: scores[k] for k in curve_keys}, f"Courbes PR sur le holdout {year}",
                 styles=styles),
             "holdout_pr_auc_intervals.png": E.plot_intervals(
                 ap, "PR-AUC (IC bootstrap à 95 %)",
-                f"PR-AUC sur le holdout {year}, tous modèles"),
+                f"PR-AUC sur le holdout {year}, tous modèles", width=width),
             "holdout_pr_auc_differences.png": E.plot_intervals(
                 mine, "Différence de PR-AUC (IC bootstrap apparié à 95 %)",
                 f"PR-AUC du modèle retenu moins celle de chaque autre modèle\n"
                 f"retenu = {E.model_label(retained)}, holdout {year}",
-                reference=0.0),
+                reference=0.0, width=width),
         }
         if self.by_role:     # v2 : scores par fold, une fois le retenu connu
             cv_folds = pd.read_csv(self.cv_dir / "cv_folds.csv")
@@ -390,6 +391,30 @@ class HoldoutEvaluation:
             run_ids["comparison"] = run.info.run_id
         return run_ids
 
+    def redraw_figures(self) -> None:
+        """Redessine les figures depuis les sorties écrites, sans rien recalculer.
+
+        Présentation seulement : relit scores, IC et différences, redessine, et
+        remplace les figures du run ``comparison``. Aucune métrique ne change.
+        """
+        res = self.dirs["results"]
+        decision = json.loads((res / "decision.json").read_text())
+        assert decision["mode"] == ("pseudo" if self.pseudo else "holdout")
+        selection = json.loads((res / "cv_selection.json").read_text())
+        scores_df = pd.read_csv(self.dirs["predictions"] / "holdout_scores.csv")
+        scores = {c: scores_df[c].to_numpy() for c in scores_df.columns
+                  if c not in ("PolicyNumber", "Year", "y")}
+        figures = self.figures(scores_df["y"], scores,
+                               pd.read_csv(res / "holdout_metrics.csv"),
+                               pd.read_csv(res / "holdout_differences.csv"),
+                               selection, list(decision["ablations"]))
+        T.setup_experiment(self.cfg, smoke=self.manifest["experiment"].endswith("-smoke"))
+        with mlflow.start_run(run_id=decision["mlflow_runs"]["comparison"]):
+            for name, fig in figures.items():
+                mlflow.log_figure(fig, f"figures/{name}")
+                plt.close(fig)
+        print(f"{len(figures)} figures redessinées dans {self.dirs['figures']}.")
+
     def _interval_metrics(self, intervals: pd.DataFrame, key: str) -> dict[str, float]:
         out = {}
         for _, row in intervals[intervals["model"] == key].iterrows():
@@ -423,12 +448,15 @@ def main() -> None:
                         help="débogage : fit 1994, évaluation 1995 (ne touche pas 1996)")
     parser.add_argument("--models-dir", type=Path, default=None)
     parser.add_argument("--cv-dir", type=Path, default=None)
+    parser.add_argument("--figures-only", action="store_true",
+                        help="redessine les figures depuis les sorties existantes (rien n'est recalculé)")
     args = parser.parse_args()
     cfg = F.load_config(args.config)
     np.random.seed(eda.RANDOM_STATE)
     resolve = lambda p: p.resolve() if p is not None else None  # noqa: E731
-    HoldoutEvaluation(cfg, args.config.resolve(), args.pseudo, resolve(args.models_dir),
-                      resolve(args.cv_dir)).run()
+    ev = HoldoutEvaluation(cfg, args.config.resolve(), args.pseudo, resolve(args.models_dir),
+                           resolve(args.cv_dir))
+    ev.redraw_figures() if args.figures_only else ev.run()
 
 
 if __name__ == "__main__":

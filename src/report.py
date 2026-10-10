@@ -170,9 +170,9 @@ def selection_frame(r: dict[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def md_table(df: pd.DataFrame) -> list[str]:
-    """DataFrame -> lignes de tableau Markdown (index inclus)."""
-    df = df.reset_index()
+def md_table(df: pd.DataFrame, index: bool = True) -> list[str]:
+    """DataFrame -> lignes de tableau Markdown (index inclus si ``index``)."""
+    df = df.reset_index() if index else df
     lines = ["| " + " | ".join(map(str, df.columns)) + " |", "|" + "---|" * df.shape[1]]
     lines += ["| " + " | ".join(map(str, row)) + " |" for row in df.itertuples(index=False)]
     return lines
@@ -443,7 +443,7 @@ def build_report_v2(r: dict[str, Any], cfg: dict[str, Any]) -> str:
         L += ["- Règle du 1-SE → pour chaque famille plus simple, écart moyen au meilleur d̄ "
               "(différences appariées par fold) et erreur-type corrigée par Nadeau-Bengio ; "
               "la famille est éligible si d̄ ≤ SE. Les IC sont donnés pour information.",
-              "", *md_table(one_se_frame(r)), ""]
+              "", *md_table(one_se_frame(r), index=False), ""]
     else:
         L.append("- Aucune famille plus simple que le meilleur → l'étape 2 ne s'applique pas.")
     how = ("la plus simple des familles éligibles" if retained != best_key
