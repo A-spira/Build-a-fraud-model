@@ -1,0 +1,94 @@
+# Matrice de décision multicritère (v2) — quel pipeline déployer, et lequel en second ?
+#
+# Rôle : aide à la décision du bloc 4. Elle NE remplace PAS la sélection du
+# bloc 2 (règle pré-enregistrée, configs/bloc2_v2.yaml, qui a retenu un modèle
+# sur la CV seule). Elle ajoute ce que la règle ignorait : l'interprétabilité,
+# le coût et la performance au budget d'enquête.
+#
+# Garde-fous contre une sélection « à la carte » :
+# - ce fichier (poids, colonnes, règles de notation) est commité AVANT tout
+#   calcul de la matrice et avant la mesure de latence ;
+# - performance et stabilité viennent de la CV SEULE (cv_summary.csv) ; 1996 est
+#   affiché à côté pour information et n'entre pas dans le score ;
+# - les notes sont mécaniques (formules et seuils ci-dessous), jamais choisies
+#   à la main ; l'interprétabilité est tirée de l'ordre de simplicité
+#   pré-enregistré avant tout résultat (bloc2_v2_decisions.md §4) ;
+# - la sensibilité aux poids est rapportée (scénarios et perturbations).
+
+source:
+  config: configs/bloc2_v2.yaml          # chemins, familles et ordre de simplicité
+  feature_set: fs_basepolicy
+  # Lignes : les 11 familles candidates + la baseline métier (solution
+  # déployable, elle concourt). Le prior est exclu : il ne classe rien.
+  extra_rows: [business]
+
+scale: {low: 1, high: 5}                 # note de 1 (faible) à 5 (fort)
+# Score sur 10 = 2 x somme(poids x note) ; poids en fraction (somme = 1).
+
+criteria:
+  performance:
+    label: Performance globale
+    weight: 0.30
+    metric: pr_auc_mean                  # PR-AUC moyenne en CV
+    direction: higher
+    rating: minmax                       # linéaire : pire ligne = 1, meilleure = 5
+  budget:
+    label: Performance au budget d'enquête
+    weight: 0.25
+    metric: recall_at_10_mean            # rappel@10 % en CV (capacité d'enquête)
+    direction: higher
+    rating: minmax
+  stability:
+    label: Stabilité
+    weight: 0.15
+    metric: pr_auc_std                   # écart-type de la PR-AUC entre folds
+    direction: lower
+    rating: minmax
+  interpretability:
+    label: Interprétabilité
+    weight: 0.20
+    rating: fixed                        # d'après l'ordre de simplicité pré-enregistré
+    values:
+      business: 5                        # deux variables, une table de taux
+      logreg: 5                          # coefficients
+      logreg_int: 4                      # coefficients + cellules d'interaction
+      ebm: 4                             # une courbe par variable + quelques paires
+      rf: 3                              # importances, TreeSHAP exact
+      brf: 3
+      svm: 2                             # noyau RBF : pas d'explication native
+      xgb: 2                             # TreeSHAP exact, mais boosting profond
+      catboost: 2                        # + encodage par statistiques de cible
+      mlp: 1                             # embeddings, explication approchée seulement
+      stacking: 1                        # méta-modèle sur trois modèles
+      ensemble: 1                        # moyenne de rangs de trois modèles
+  cost:
+    label: Coût opérationnel
+    weight: 0.10
+    rating: thresholds                   # moyenne de deux notes à seuils fixés d'avance
+    latency:                             # secondes pour scorer 4 000 lignes brutes (médiane de 5)
+      batch_rows: 4000
+      repeats: 5
+      thresholds: [0.1, 0.5, 2.0, 10.0]  # <= 0.1 s : 5 ; <= 0.5 : 4 ; <= 2 : 3 ; <= 10 : 2 ; sinon 1
+    size_mb:                             # taille du pipeline sérialisé (joblib)
+      thresholds: [1.0, 10.0, 50.0, 200.0]
+
+# Égalité de score : la solution la plus simple d'abord (baseline métier, puis
+# l'ordre de simplicité pré-enregistré).
+tie_break: simplicity
+
+# Sensibilité : le top 2 est-il robuste aux poids ?
+sensitivity:
+  scenarios:
+    performance_d_abord: {performance: 0.40, budget: 0.30, stability: 0.10, interpretability: 0.10, cost: 0.10}
+    interpretabilite_d_abord: {performance: 0.20, budget: 0.20, stability: 0.15, interpretability: 0.35, cost: 0.10}
+    poids_egaux: {performance: 0.20, budget: 0.20, stability: 0.20, interpretability: 0.20, cost: 0.20}
+  # En plus : chaque poids de base décalé de ±5 points, la différence étant
+  # répartie sur les autres critères au prorata de leurs poids.
+  perturbation: 0.05
+
+outputs:
+  results: reports/v2/results/decision_matrix.csv
+  sensitivity: reports/v2/results/decision_matrix_sensitivity.csv
+  latency: reports/v2/results/latency.csv
+  report: reports/v2/decision_matrix.md
+  figure: reports/v2/figures/decision_matrix.png

@@ -28,9 +28,11 @@ PROJECT_ROOT = eda.PROJECT_ROOT
 # MLflow sur pickle est connu et documenté, on ne le répète pas à chaque run.
 logging.getLogger("mlflow.sklearn").setLevel(logging.ERROR)
 # Paquets nécessaires pour recharger un pipeline (versions lues dans requirements.txt).
-INFERENCE_PACKAGES = ["numpy", "pandas", "scikit-learn", "scipy", "xgboost", "joblib"]
+INFERENCE_PACKAGES = ["numpy", "pandas", "scikit-learn", "scipy", "xgboost", "joblib",
+                      "catboost", "interpret-core", "imbalanced-learn", "torch"]
 # Code nécessaire pour dépickler les transformers et estimateurs maison.
-CODE_PATHS = [PROJECT_ROOT / "src" / name for name in ("eda.py", "features.py", "models.py")]
+CODE_PATHS = [PROJECT_ROOT / "src" / name
+              for name in ("eda.py", "features.py", "estimators.py", "models.py")]
 
 
 # --------------------------------------------------------------------------- #
@@ -74,6 +76,11 @@ def _git(*args: str) -> str:
         return "unknown"
 
 
+def last_commit(paths: list[str]) -> str:
+    """Hash court et date du dernier commit touchant ``paths`` (pré-enregistrement)."""
+    return _git("log", "-1", "--format=%h du %ad", "--date=short", "--", *paths)
+
+
 def git_commit() -> str:
     return _git("rev-parse", "HEAD")
 
@@ -81,6 +88,38 @@ def git_commit() -> str:
 def git_dirty() -> bool:
     """Vrai si des fichiers suivis sont modifiés (le run ne reflète pas HEAD)."""
     return bool(_git("status", "--porcelain", "--untracked-files=no"))
+
+
+def check_preregistered(cfg: dict[str, Any]) -> None:
+    """Refuse une évaluation complète si la règle n'est pas pré-enregistrée.
+
+    Chaque fichier de ``cfg['preregistration']['files']`` doit être suivi par
+    Git, sans modification non commitée, et le document ne doit plus porter la
+    mention de brouillon. Sans clé ``preregistration`` (v1), rien n'est vérifié.
+    La mention n'est cherchée que dans les documents : la config YAML la
+    définit (``draft_marker``) et la contient donc toujours.
+    """
+    pre = cfg.get("preregistration")
+    if not pre:
+        return
+    for rel in pre["files"]:
+        tracked = _git("ls-files", "--error-unmatch", rel)
+        assert tracked not in ("", "unknown"), f"{rel} n'est pas commité : règle non pré-enregistrée"
+        assert not _git("status", "--porcelain", "--", rel), \
+            f"{rel} a des modifications non commitées : règle non pré-enregistrée"
+        if rel.endswith((".yaml", ".yml")):
+            continue
+        text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
+        assert pre["draft_marker"] not in text, f"{rel} est encore un brouillon"
+
+
+def is_preregistered(cfg: dict[str, Any]) -> bool:
+    """Vrai si la règle est pré-enregistrée (toujours vrai sans clé ``preregistration``)."""
+    try:
+        check_preregistered(cfg)
+    except AssertionError:
+        return False
+    return True
 
 
 def file_sha256(path: str | Path) -> str:
@@ -99,6 +138,7 @@ def run_tags(cfg: dict[str, Any], family: str, feature_set: str | None, kind: st
         "git_dirty": str(git_dirty()),
         "data_sha256": file_sha256(PROJECT_ROOT / cfg["paths"]["data"]),
         "bloc": "2",
+        "protocol": cfg["mlflow"]["experiment"],
         "model_family": family,
         "feature_set": feature_set or "none",
         "run_kind": kind,
