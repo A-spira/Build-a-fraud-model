@@ -48,10 +48,14 @@ calibration:
   fit_on: oof_1995                     # jamais 1996
   methods: [none, platt, isotonic]     # non calibré / sigmoïde / isotonique
   reliability_bins: 10                 # courbe de fiabilité, bins de quantiles
-  # Règle de choix PRÉ-ENREGISTRÉE : plus petit Brier OOF 1995. En cas d'égalité
-  # dans le bruit (écart <= brier_tie_tol), on préfère Platt (2 paramètres),
-  # plus robuste que l'isotonique quand il y a peu de fraudes (301 en 1995).
-  choice: min_oof_brier
+  # Règle de choix PRÉ-ENREGISTRÉE : plus petit Brier estimé par CV INTERNE sur
+  # les OOF 1995 (5 plis stratifiés, seed 42), et non par resubstitution — sinon
+  # l'isotonique, qui surapprend les paliers, paraîtrait toujours meilleure
+  # (301 fraudes en 1995). Le calibrateur retenu est ensuite réajusté sur tout
+  # 1995. En cas d'égalité dans le bruit (écart <= brier_tie_tol), on préfère
+  # Platt (2 paramètres), plus robuste que l'isotonique.
+  choice: min_cv_brier
+  selection_cv_folds: 5
   brier_tie_tol: 0.0005
   tie_prefer: platt
 

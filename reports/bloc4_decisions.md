@@ -42,10 +42,13 @@ quantifie honnêtement ce que la RF apporte — ou non — face à la règle mé
   probabilité de fraude.
 - **Décision** : comparer trois versions — non calibré, **Platt** (sigmoïde),
   **isotonique** — ajustées sur les **OOF 1995** (`oof_scores.csv`), jamais 1996.
-- **Règle de choix pré-enregistrée** : plus petit **Brier OOF 1995**. En cas
+- **Règle de choix pré-enregistrée** : plus petit **Brier estimé par CV interne**
+  sur les OOF 1995 (**5 plis stratifiés, seed 42**), et non par resubstitution :
+  évaluer un calibrateur sur les mêmes points qui l'ont ajusté flatterait
+  l'isotonique, qui surapprend les paliers (301 fraudes en 1995). Le calibrateur
+  retenu est ensuite **réajusté sur tout 1995** pour le pipeline déployé. En cas
   d'égalité dans le bruit (écart ≤ `brier_tie_tol = 0,0005`), préférer **Platt**
-  (2 paramètres), plus robuste que l'isotonique quand il y a peu de fraudes
-  (301 en 1995 → l'isotonique peut surapprendre les paliers).
+  (2 paramètres), plus robuste que l'isotonique.
 - **Rapport sur 1996** : courbe de fiabilité (10 bins de quantiles), Brier,
   Brier de la baseline « prior », ECE, log-loss, tous avec IC bootstrap.
 - **Livrable** : pipeline final `prétraitement + RF + calibrateur` sérialisé et
