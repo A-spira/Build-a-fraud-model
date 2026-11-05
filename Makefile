@@ -129,15 +129,17 @@ decision-bloc4: rf-pipeline calibrate threshold diagnostic slices explain
 	$(PY) src/report_bloc4.py --config $(CONFIG_B4)
 	$(NBEXEC) --inplace notebooks/04_decision.ipynb
 
-# Deux `make decision-bloc4` doivent produire des rapports/tables identiques.
+# Deux `make decision-bloc4` consécutifs (même HEAD) doivent produire des
+# rapports et tables identiques à l'octet près (hors .joblib et MLflow).
 B4_RESULTS := reports/bloc4/results
 B4_RUN1    := build/bloc4/run1
 determinism-bloc4:
+	$(MAKE) decision-bloc4
 	rm -rf $(B4_RUN1) && mkdir -p $(B4_RUN1)
 	cp -R $(B4_RESULTS)/. $(B4_RUN1)/
 	$(MAKE) decision-bloc4
 	diff -r $(B4_RUN1) $(B4_RESULTS)
-	@echo "Déterminisme bloc 4 : deux decision-bloc4 identiques."
+	@echo "Déterminisme bloc 4 : deux decision-bloc4 identiques à l'octet près."
 
 test-api:
 	$(PY) -m pytest -q tests/test_api.py
