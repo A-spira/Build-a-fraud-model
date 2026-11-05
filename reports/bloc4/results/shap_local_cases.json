@@ -1,0 +1,14 @@
+{
+  "true_positive": {
+    "policy_number": 11374,
+    "sentence": "Vrai positif (fraude signalée) — case Third Party × Collision, probabilité calibrée 100.0%. Poids décisifs : AddressChange-Claim (+0.305), Deductible (+0.135). SHAP explique le modèle, pas la cause."
+  },
+  "false_positive": {
+    "policy_number": 13320,
+    "sentence": "Faux positif (sinistre sain signalé) — case Policy Holder × All Perils, probabilité calibrée 20.0%. Poids décisifs : BasePolicy (+0.143), Fault (+0.075). SHAP explique le modèle, pas la cause."
+  },
+  "false_negative": {
+    "policy_number": 11601,
+    "sentence": "Faux négatif (fraude manquée) — case Policy Holder × Liability, probabilité calibrée 0.5%. Poids décisifs : BasePolicy (-0.082), Fault (+0.014). SHAP explique le modèle, pas la cause."
+  }
+}

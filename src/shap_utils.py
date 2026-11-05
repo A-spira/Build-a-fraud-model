@@ -56,11 +56,11 @@ def shap_class1(pipe: Any, X: pd.DataFrame) -> tuple[pd.DataFrame, float, pd.Dat
     Retourne (shap par colonne encodée, valeur de base, matrice transformée).
     """
     prep, clf = pipe.named_steps["prep"], pipe.named_steps["clf"]
-    Xt = prep.transform(X)
     names = feature_names(pipe)
-    Xt_df = pd.DataFrame(np.asarray(Xt), columns=names, index=X.index)
+    Xt = np.asarray(prep.transform(X), dtype=float)   # numpy : SHAP bien plus rapide
+    Xt_df = pd.DataFrame(Xt, columns=names, index=X.index)
     explainer = shap.TreeExplainer(clf, feature_perturbation="tree_path_dependent")
-    sv = explainer.shap_values(Xt_df)
+    sv = explainer.shap_values(Xt, check_additivity=False)
     base = explainer.expected_value
     if isinstance(sv, list):                 # [classe0, classe1]
         sv1, base1 = sv[1], float(np.ravel(base)[1])
