@@ -1,0 +1,19 @@
+{
+  "deployed_key": "rf__fs_basepolicy",
+  "budget": 0.1,
+  "threshold_tau_rawscore": 0.1813044733044733,
+  "threshold_proba_at_tau": 0.1003174603174603,
+  "threshold_derived_on": "oof_1995",
+  "cost_ratio_primary": 10,
+  "operating_1996": {
+    "n_flagged": 393,
+    "tp": 39,
+    "fp": 354,
+    "fn": 174,
+    "recall": 0.18309859154929578,
+    "precision": 0.09923664122137404,
+    "f2": 0.1566265060240964,
+    "flagged_frac": 0.09625275532696546
+  },
+  "git_commit": "aa95cfc3997f8eb773795752e583c0daf03b5f93"
+}
