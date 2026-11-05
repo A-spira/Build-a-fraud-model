@@ -1,0 +1,18 @@
+model,cell,share_of_flagged
+rf__fs_basepolicy,Policy Holder | All Perils,0.7423076923076923
+rf__fs_basepolicy,Policy Holder | Collision,0.21923076923076923
+rf__fs_basepolicy,Third Party | All Perils,0.019230769230769232
+rf__fs_basepolicy,Third Party | Collision,0.01730769230769231
+rf__fs_basepolicy,Third Party | Liability,0.0019230769230769232
+mlp__fs_basepolicy,Policy Holder | All Perils,0.7634615384615384
+mlp__fs_basepolicy,Policy Holder | Collision,0.19423076923076923
+mlp__fs_basepolicy,Third Party | All Perils,0.021153846153846155
+mlp__fs_basepolicy,Third Party | Collision,0.019230769230769232
+mlp__fs_basepolicy,Policy Holder | Liability,0.0019230769230769232
+svm__fs_basepolicy,Policy Holder | All Perils,0.49615384615384617
+svm__fs_basepolicy,Policy Holder | Collision,0.3730769230769231
+svm__fs_basepolicy,Policy Holder | Liability,0.051923076923076926
+svm__fs_basepolicy,Third Party | Collision,0.04038461538461539
+svm__fs_basepolicy,Third Party | All Perils,0.032692307692307694
+svm__fs_basepolicy,Third Party | Liability,0.0057692307692307696
+business,Policy Holder | All Perils,1.0
