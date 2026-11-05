@@ -19,8 +19,11 @@ export MLFLOW_DISABLE_AGENT_HINT := 1
 # « python3 » d'un autre environnement (conda, utilisateur) qui le masquerait.
 export JUPYTER_PATH := $(CURDIR)/$(VENV)/share/jupyter
 
+CONFIG_B4 := configs/bloc4.yaml
 .PHONY: install eda smoke train holdout report test mlflow-ui all smoke-v2 train-v2 \
-        holdout-v2 report-v2 determinism-v2 night-v2 decision-v2
+        holdout-v2 report-v2 determinism-v2 night-v2 decision-v2 \
+        rf-pipeline calibrate threshold diagnostic slices explain decision-bloc4 \
+        determinism-bloc4 serve test-api
 
 install:
 	$(PYTHON) -m venv $(VENV)
@@ -96,3 +99,49 @@ mlflow-ui:
 	$(VENV)/bin/mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
 
 all: eda train holdout report
+
+# --------------------------------------------------------------------------- #
+# Bloc 4 « Decision » (configs/bloc4.yaml). Choix pré-enregistrés sur 1994-95 /
+# OOF 1995 ; 1996 lu une seule fois pour rapporter. Les scripts refusent de
+# tourner tant que la règle n'est pas commitée (tracking.check_preregistered).
+# --------------------------------------------------------------------------- #
+# Régénère (et vérifie) le pipeline RF déployé, gitignoré (models/v2/).
+rf-pipeline:
+	$(PY) src/bloc4.py --config $(CONFIG_B4)
+
+calibrate: rf-pipeline
+	$(PY) src/calibration.py --config $(CONFIG_B4)
+
+threshold:
+	$(PY) src/threshold.py --config $(CONFIG_B4)
+
+diagnostic:
+	$(PY) src/diagnostic.py --config $(CONFIG_B4)
+
+slices:
+	$(PY) src/slices.py --config $(CONFIG_B4)
+
+explain: rf-pipeline
+	$(PY) src/explain.py --config $(CONFIG_B4)
+
+# Enchaîne toutes les phases, puis le rapport et le notebook 04.
+decision-bloc4: rf-pipeline calibrate threshold diagnostic slices explain
+	$(PY) src/report_bloc4.py --config $(CONFIG_B4)
+	$(NBEXEC) --inplace notebooks/04_decision.ipynb
+
+# Deux `make decision-bloc4` doivent produire des rapports/tables identiques.
+B4_RESULTS := reports/bloc4/results
+B4_RUN1    := build/bloc4/run1
+determinism-bloc4:
+	rm -rf $(B4_RUN1) && mkdir -p $(B4_RUN1)
+	cp -R $(B4_RESULTS)/. $(B4_RUN1)/
+	$(MAKE) decision-bloc4
+	diff -r $(B4_RUN1) $(B4_RESULTS)
+	@echo "Déterminisme bloc 4 : deux decision-bloc4 identiques."
+
+test-api:
+	$(PY) -m pytest -q tests/test_api.py
+
+# API : charge le pipeline calibré final et son manifeste au démarrage.
+serve:
+	$(PY) -m uvicorn api.main:app --host 127.0.0.1 --port 8000
