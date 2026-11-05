@@ -1,0 +1,18 @@
+{
+  "threshold_tau_rawscore": 0.1813044733044733,
+  "global_recall": 0.18309859154929578,
+  "global_precision": 0.09923664122137404,
+  "n_flagged": 393,
+  "weak_slices": [
+    {
+      "segment": "AgeOfPolicyHolder",
+      "level": "41 to 50"
+    },
+    {
+      "segment": "BasePolicy",
+      "level": "Collision"
+    }
+  ],
+  "ablation_no_sex_pr_auc_gap": 0.0012193708924671531,
+  "git_commit": "ef322878d40fd133492c2c3f8123412f80b532a1"
+}
