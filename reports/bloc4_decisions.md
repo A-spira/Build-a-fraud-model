@@ -107,8 +107,9 @@ sur les OOF 1995 puis confirmée sur 1996 :
 - **TreeExplainer** sur la RF ; noms via
   `pipe.named_steps["prep"].get_feature_names_out()`.
 - **Global** : valeurs SHAP agrégées des colonnes encodées vers la variable
-  d'origine (beeswarm + bar plot) ; cohérence vérifiée avec l'EDA et la règle
-  métier.
+  d'origine (beeswarm + bar plot), sur un **échantillon stratifié de 1200
+  sinistres** (seed 42 ; TreeExplainer sur 500 arbres à grandes feuilles est
+  coûteux, 1200 suffisent) ; cohérence vérifiée avec l'EDA et la règle métier.
 - **Local** : 3 cas réels de 1996 (un vrai positif, un faux positif, un faux
   négatif) en waterfall, une phrase métier par cas.
 - SHAP **explique le modèle, pas la causalité** de la fraude.

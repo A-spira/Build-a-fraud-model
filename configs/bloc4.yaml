@@ -105,6 +105,10 @@ slices:
 # --------------------------------------------------------------------------- #
 explain:
   explainer: tree                      # TreeExplainer sur la RF
+  # SHAP global sur un échantillon stratifié (seed 42) : TreeExplainer sur 500
+  # arbres à grandes feuilles est coûteux ; 1200 sinistres suffisent au beeswarm
+  # et au classement d'importance. Le local porte sur 3 cas réels.
+  global_sample: 1200
   local_cases: [true_positive, false_positive, false_negative]  # 3 cas réels de 1996
 
 # IC bootstrap : stratifié apparié, identique au bloc 2.
