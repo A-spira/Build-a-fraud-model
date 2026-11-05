@@ -1,0 +1,4 @@
+method,cv_brier_1995,chosen
+none,0.05620457964392461,False
+platt,0.05328929705493394,False
+isotonic,0.051925633453840124,True

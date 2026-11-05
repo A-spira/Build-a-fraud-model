@@ -1,0 +1,21 @@
+{
+  "deployed_key": "rf__fs_basepolicy",
+  "method": "isotonic",
+  "selection": {
+    "cv_brier": {
+      "none": 0.05620457964392461,
+      "platt": 0.05328929705493394,
+      "isotonic": 0.051925633453840124
+    },
+    "best": "isotonic",
+    "tied": [
+      "isotonic"
+    ],
+    "chosen": "isotonic"
+  },
+  "brier_prior_1996": 0.04955546973044001,
+  "prior": 0.0626267972126665,
+  "git_commit": "490620cf7dd2e73d126e7e7827aae29899b38820",
+  "data_sha256": "a9ff2d9b5f2d7beb2d0bc99d7a74010a0a765147c0234cb0d8d0403bf6ace2d6",
+  "model_path": "models/bloc4/rf_calibrated.joblib"
+}
