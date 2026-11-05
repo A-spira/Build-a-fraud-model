@@ -22,9 +22,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
 
-SRC = Path(__file__).resolve().parent.parent / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+API_DIR = Path(__file__).resolve().parent
+SRC = API_DIR.parent / "src"
+for _p in (str(API_DIR), str(SRC)):            # ni api/ ni src/ ne sont des packages
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import bloc4  # noqa: E402
 import calibrators  # noqa: E402,F401  (classes pour le dépickle du .joblib)
