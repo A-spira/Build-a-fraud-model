@@ -88,8 +88,8 @@ sur 14) et **le réseau de neurones 2e**.
 | Bloc 2 v2 (11 familles + 3 barres) | Fait | `reports/v2/model_comparison.md`, `notebooks/03_model_comparison_v2.ipynb` |
 | Matrice de décision multicritère | Faite | `reports/v2/decision_matrix.md` |
 | Bloc 3 (Pipeline, MLflow, reproductibilité) | Fait, vérifié sur clone propre (v1) | `Makefile`, `src/`, `tests/` (123 tests) |
-| Bloc 4 | Pas commencé | interfaces prêtes : `reports/*/predictions/`, `models/` |
-| `README.md` (humains) | Sections bloc 1 et blocs 2–3 v1 ; **section v2 pas encore écrite** | `README.md` |
+| Bloc 4 (Decision) | **Fait** : calibration, seuil, diagnostic, slices, SHAP, API | `src/calibration.py`, `threshold.py`, `diagnostic.py`, `slices.py`, `explain.py`, `report_bloc4.py`, `bloc4.py`, `calibrators.py`, `shap_utils.py`, `api/`, `reports/bloc4/`, `notebooks/04_decision.ipynb` (branche `bloc4-decision`) |
+| `README.md` (humains) | Sections bloc 1, blocs 2–3 v1, **v2 et bloc 4 ajoutées** | `README.md` |
 | PR vers `main` | Non ouverte (l'utilisateur l'ouvre lui-même) | — |
 
 **Branches** :
@@ -475,6 +475,16 @@ les résultats (d'où les notes mécaniques et le commit préalable).
   du modèle à celles de la règle métier**, audit des slices sensibles (EDA §5,
   `ablation_no_sex`), explications (SHAP, ou courbes pour l'EBM), API FastAPI,
   suivi de la dérive au-delà de 1996.
+- **Fait (bloc 4, branche `bloc4-decision`)** : le pipeline RF est régénéré et
+  **vérifié** (`src/bloc4.py` : refit depuis `best_params.json`, scores
+  identiques à ~1e-16 au holdout figé). Calibrateur retenu **isotonique**
+  (Brier 1996 0,046 ; ECE 0,006 vs 0,037 brut ; le RF brut a le même Brier que
+  le prior). Seuil budget 10 % (rang brut) : rappel 18,3 % sur 1996 ; au même
+  budget la **règle métier** (rappel 23,5 %) n'est pas battue (McNemar p=0,25).
+  Diagnostic : 2 cases = 92 % des fraudes, aucun tri intra-case significatif.
+  Weak slice : `BasePolicy=Collision`. SHAP : Fault + BasePolicy = 51 % de
+  l'importance. Pipeline calibré sérialisé `models/bloc4/rf_calibrated.joblib`
+  (classe `calibrators.CalibratedModel`) ; API `api/` (uvicorn `api.main:app`).
 
 ---
 
@@ -553,19 +563,19 @@ les résultats (d'où les notes mécaniques et le commit préalable).
 
 ## 14. Travail restant et questions ouvertes
 
-1. **Décision d'équipe pour le bloc 4** (en attente) : (a) recommandation de
-   l'assistant : **règle métier comme décision opérationnelle par défaut + réseau
-   de neurones en challenger**, le bloc 4 comparant leurs décisions au seuil de
-   10 % avec la RF en référence ; (b) alternative : déployer la **Random Forest**
-   retenue par la règle du bloc 2 (cohérent avec le protocole, plus faible sur la
-   matrice).
-2. **Pousser** : `git push -u origin recap-llm` (contient tout) et/ou pousser
-   `bloc2-comparison` (5 commits en attente au 30 octobre 2026).
-3. **README humain** : ajouter une section v2 (commande de nuit, où lire les
-   résultats, matrice) — pas encore fait.
-4. **PR vers `main`** : à ouvrir par l'utilisateur ; une description v1 avait été
-   rédigée et doit être complétée avec la v2 et la matrice.
-5. **Bloc 4** : calibration, seuil, slices, SHAP, FastAPI (voir §10).
+1. **Décision d'équipe pour le bloc 4** : **TRANCHÉE** — déployer la **Random
+   Forest** (retenue par la règle v2), benchmark = règle métier partout,
+   challenger = réseau. Le bloc 4 (branche `bloc4-decision`) l'implémente : la
+   conclusion honnête reste que la RF ne bat pas démontrablement la règle métier
+   au budget de 10 %, et recommande de présenter les deux au comité.
+2. **Pousser** : branche `bloc4-decision` (bloc 4 complet) à pousser par
+   l'utilisateur ; `recap-llm` / `bloc2-comparison` déjà sur `origin`.
+3. **README humain** : sections v2 et bloc 4 **ajoutées** (commandes, où lire,
+   API).
+4. **PR vers `main`** : à ouvrir par l'utilisateur, en y intégrant v2, matrice et
+   bloc 4.
+5. **Bloc 4** : **fait** — calibration, seuil, diagnostic, slices, SHAP, FastAPI
+   (voir §2 et §10).
 6. **Oral** (10 min + 5 min) : récit attendu — v1 rigoureuse mais limitée →
    ouverture des modèles par le professeur → v2 pré-enregistrée avec
    déclaration honnête sur 1996 → la RF bat la LR v1 mais pas démontrablement la

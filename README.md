@@ -94,3 +94,69 @@ pipe = mlflow.sklearn.load_model("runs:/<run_id>/model")   # DataFrame brut -> s
 - [`train.py`](src/train.py), [`holdout.py`](src/holdout.py),
   [`report.py`](src/report.py) — CLI appelées par le `Makefile`.
 - [`configs/bloc2.yaml`](configs/bloc2.yaml) — tous les paramètres du protocole.
+
+---
+
+# Bloc 2 — v2 : comparaison élargie (ML + DL)
+
+Le professeur a autorisé toute famille de modèles : la **v2** compare **11
+familles** (LR, LR+croisements, EBM, Random Forest, Balanced RF, SVM, XGBoost,
+CatBoost, réseau de neurones à embeddings, stacking, ensemble) sous une CV
+**ancrée** (chaque fold apprend au moins sur toute l'année 1994) et une règle du
+**1-SE** pré-enregistrée (`configs/bloc2_v2.yaml`, gelée au commit `29d1e28`).
+
+La règle retient la **Random Forest** ; sur 1996 elle bat la LR v1 mais **pas
+démontrablement la baseline métier** (`Fault × BasePolicy`). Une **matrice de
+décision multicritère** (poids commités avant calcul) classe la baseline métier
+1re et le réseau 2e.
+
+```bash
+make smoke-v2                                   # validation rapide, aucune métrique
+caffeinate -is make night-v2 | tee build/v2/night.log   # train-v2, déterminisme, holdout, rapport (~2 h)
+make decision-v2                                # matrice de décision multicritère
+```
+Résultats : [`reports/v2/model_comparison.md`](reports/v2/model_comparison.md),
+[`reports/v2/decision_matrix.md`](reports/v2/decision_matrix.md),
+[`notebooks/03_model_comparison_v2.ipynb`](notebooks/03_model_comparison_v2.ipynb).
+Récapitulatif complet : [`README_LLM.md`](README_LLM.md).
+
+---
+
+# Bloc 4 — « Decision : defend the solution, not only the score »
+
+Calibration, seuil opérationnel, diagnostic, weak slices, SHAP et API, autour du
+pipeline **déployé** (Random Forest calibrée), de son **benchmark** (règle métier)
+et de son **challenger** (réseau). Choix **pré-enregistrés** sur 1994-95 / OOF
+1995 ([`reports/bloc4_decisions.md`](reports/bloc4_decisions.md),
+[`configs/bloc4.yaml`](configs/bloc4.yaml)) ; 1996 lu une seule fois pour
+rapporter, avec IC bootstrap. Le garde-fou `tracking.check_preregistered` refuse
+de lire 1996 tant que ces fichiers ne sont pas commités.
+
+## Reproduire
+```bash
+make rf-pipeline     # régénère + VÉRIFIE le pipeline RF déployé (gitignoré)
+make decision-bloc4  # calibrate -> threshold -> diagnostic -> slices -> explain -> rapport + notebook 04
+make test            # tous les tests (dont tests/test_api.py)
+```
+`make decision-bloc4` est reproductible à l'octet près (hors `.joblib` et MLflow),
+vérifiable par `make determinism-bloc4`.
+
+## Où lire les résultats
+| Fichier | Contenu |
+|---|---|
+| [`reports/bloc4_decision.md`](reports/bloc4_decision.md) | Synthèse décisionnelle (calibration, seuil, décisions, slices, SHAP, reco, limites) |
+| [`reports/bloc4_why_baseline.md`](reports/bloc4_why_baseline.md) | Diagnostic « pourquoi la règle métier tient » + réponse jury |
+| [`notebooks/04_decision.ipynb`](notebooks/04_decision.ipynb) | Lecture et présentation de toutes les sorties |
+| `reports/bloc4/results/` · `reports/bloc4/figures/` | Tables et figures générées |
+
+## Lancer l'API
+```bash
+make serve           # uvicorn api.main:app sur http://127.0.0.1:8000
+curl -s http://127.0.0.1:8000/health
+curl -s -X POST "http://127.0.0.1:8000/predict?explain=true" \
+     -H "Content-Type: application/json" \
+     -d '{"claims": [{"Month":"Dec","WeekOfMonth":5,"DayOfWeek":"Wednesday","Make":"Honda","AccidentArea":"Urban","DayOfWeekClaimed":"Tuesday","MonthClaimed":"Jan","WeekOfMonthClaimed":1,"Sex":"Female","MaritalStatus":"Single","Age":21,"Fault":"Policy Holder","PolicyType":"Sport - Liability","VehicleCategory":"Sport","VehiclePrice":"more than 69,000","RepNumber":12,"Deductible":300,"DriverRating":1,"Days:Policy-Accident":"more than 30","Days:Policy-Claim":"more than 30","PastNumberOfClaims":"none","AgeOfVehicle":"3 years","AgeOfPolicyHolder":"26 to 30","PoliceReportFiled":"No","WitnessPresent":"No","AgentType":"External","NumberOfSuppliments":"none","AddressChange-Claim":"1 year","NumberOfCars":"3 to 4","BasePolicy":"Liability"}]}'
+```
+`GET /health` (version, commit, SHA des données), `GET /model-info` (features,
+seuil, budget, calibration), `POST /predict` (probabilité calibrée, score brut,
+décision « à enquêter », seuil ; `?explain=true` ajoute le top 3 SHAP).

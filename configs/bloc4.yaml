@@ -1,0 +1,123 @@
+# Bloc 4 « Decision » — choix pré-enregistrés AVANT toute lecture de métriques 1996.
+#
+# Source de vérité des paramètres du bloc 4. Justification de chaque choix :
+# reports/bloc4_decisions.md. Tous les choix (méthode de calibration, seuil,
+# slices auditées, taille minimale de slice, ratio de coûts) sont figés ici et
+# dans le document de décisions, commités AVANT que le moindre script ne lise la
+# cible de 1996. Garde-fou : tracking.check_preregistered (réutilisé de la v2)
+# refuse de tourner tant que ces deux fichiers ne sont pas commités tels quels.
+#
+# Les choix se font sur le TRAIN (1994-95) ou sur les OOF 1995 UNIQUEMENT ; 1996
+# ne sert qu'à rapporter, avec IC bootstrap stratifié apparié (2000 tirages,
+# seed 42), exactement comme au bloc 2. Chemins relatifs à la racine du projet.
+
+seed: 42
+
+paths:
+  data: data/raw/carclaims.csv
+  # Interfaces héritées du bloc 2 v2 (scores figés, régénérés par `make train-v2`).
+  oof_scores: reports/v2/predictions/oof_scores.csv          # 1995 seulement
+  holdout_scores: reports/v2/predictions/holdout_scores.csv  # 1996
+  score_types: reports/v2/predictions/score_types.json
+  rf_pipeline: models/v2/rf__fs_basepolicy.joblib            # régénéré (refit vérifié)
+  v2_config: configs/bloc2_v2.yaml
+  v2_best_params: reports/v2/results/best_params.json
+  # Sorties du bloc 4.
+  results_dir: reports/bloc4/results
+  predictions_dir: reports/bloc4/predictions
+  figures_dir: reports/bloc4/figures
+  models_dir: models/bloc4                                   # gitignoré, régénéré
+  report: reports/bloc4_decision.md
+  why_baseline: reports/bloc4_why_baseline.md
+
+mlflow:
+  tracking_uri: sqlite:///mlflow.db
+  artifact_root: mlartifacts
+  experiment: fraud-bloc4-decision
+
+# Décision d'équipe (bloc 2) — NE PAS la rediscuter dans le bloc 4.
+pipeline:
+  deployed: rf__fs_basepolicy          # retenu par la règle pré-enregistrée v2
+  benchmark: business                  # baseline métier Fault × BasePolicy (partout)
+  challenger: mlp__fs_basepolicy       # challenger informatif (réseau de neurones)
+
+# --------------------------------------------------------------------------- #
+# PHASE 1 — Calibration (choix fait sur les OOF 1995 seulement)
+# --------------------------------------------------------------------------- #
+calibration:
+  fit_on: oof_1995                     # jamais 1996
+  methods: [none, platt, isotonic]     # non calibré / sigmoïde / isotonique
+  reliability_bins: 10                 # courbe de fiabilité, bins de quantiles
+  # Règle de choix PRÉ-ENREGISTRÉE : plus petit Brier estimé par CV INTERNE sur
+  # les OOF 1995 (5 plis stratifiés, seed 42), et non par resubstitution — sinon
+  # l'isotonique, qui surapprend les paliers, paraîtrait toujours meilleure
+  # (301 fraudes en 1995). Le calibrateur retenu est ensuite réajusté sur tout
+  # 1995. En cas d'égalité dans le bruit (écart <= brier_tie_tol), on préfère
+  # Platt (2 paramètres), plus robuste que l'isotonique.
+  choice: min_cv_brier
+  selection_cv_folds: 5
+  brier_tie_tol: 0.0005
+  tie_prefer: platt
+
+# --------------------------------------------------------------------------- #
+# PHASE 2 — Seuil opérationnel (dérivé des OOF 1995)
+# --------------------------------------------------------------------------- #
+threshold:
+  budget: 0.10                         # capacité d'enquête : 10 % des sinistres (top-k)
+  derive_on: oof_1995                  # seuil fixé sur 1995, appliqué tel quel à 1996
+  # Analyse de coût : coût attendu = C_FN·FN + C_FP·FP.
+  cost_ratio: 10                       # C_FN / C_FP pré-enregistré (principal)
+  cost_ratio_sensitivity: [5, 10, 20, 50]
+  # Comparaison des décisions au même budget (recouvrement Jaccard, McNemar).
+  compare_decisions: [rf__fs_basepolicy, business, mlp__fs_basepolicy]
+
+# --------------------------------------------------------------------------- #
+# PHASE 2bis — Diagnostic « pourquoi la règle métier tient »
+# --------------------------------------------------------------------------- #
+diagnostic:
+  cells: [Fault, BasePolicy]           # cases de concentration du signal
+  recall_at_k_grid: [0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20, 0.30, 0.40]
+  intra_case_models: [rf__fs_basepolicy, mlp__fs_basepolicy, svm__fs_basepolicy]
+  focus_cell: "Policy Holder | All Perils"   # case à plus forte concentration
+  # Option HYBRIDE pré-enregistrée (règle métier filtre, RF classe à l'intérieur) :
+  # évaluée seulement si le gain intra-case est significatif. Recommandation, PAS
+  # une re-sélection du pipeline déployé.
+  hybrid:
+    filter_cells: [Fault, BasePolicy]
+    ranker: rf__fs_basepolicy
+
+# --------------------------------------------------------------------------- #
+# PHASE 3 — Weak slices (sur 1996, au seuil retenu)
+# --------------------------------------------------------------------------- #
+slices:
+  # Taille minimale PRÉ-ENREGISTRÉE : en dessous, le point n'est pas interprété
+  # (on montre l'IC de Wilson seulement) ; n < 30 => non concluant (EDA §5).
+  min_slice_size: 100
+  non_interpretable_below: 30
+  # Make : niveaux fusionnés sous min_slice_size en 'other' (descriptif, pas un modèle).
+  merge_rare_levels_in: [Make]
+  segments: [Sex, AgeOfPolicyHolder, Age0, Make, BasePolicy, Fault, AccidentArea,
+             VehiclePrice, PastNumberOfClaims, AgentType]
+  fairness_calibration: [Sex, AgeOfPolicyHolder]   # taux observé vs proba moyenne
+
+# --------------------------------------------------------------------------- #
+# PHASE 4 — Explications SHAP (modèle déployé seulement)
+# --------------------------------------------------------------------------- #
+explain:
+  explainer: tree                      # TreeExplainer sur la RF
+  # SHAP global sur un échantillon stratifié (seed 42) : TreeExplainer sur 500
+  # arbres à grandes feuilles est coûteux ; 1200 sinistres suffisent au beeswarm
+  # et au classement d'importance. Le local porte sur 3 cas réels.
+  global_sample: 1200
+  local_cases: [true_positive, false_positive, false_negative]  # 3 cas réels de 1996
+
+# IC bootstrap : stratifié apparié, identique au bloc 2.
+bootstrap:
+  n_resamples: 2000
+  confidence: 0.95
+
+# Garde-fou : hors --smoke, les scripts du bloc 4 refusent de lire 1996 tant que
+# ces fichiers ne sont pas commités tels quels, ou si le document est un brouillon.
+preregistration:
+  files: [configs/bloc4.yaml, reports/bloc4_decisions.md]
+  draft_marker: "Statut : BROUILLON"

@@ -1,0 +1,4 @@
+model_a,model_b,a_only_frauds,b_only_frauds,discordant,mcnemar_p,jaccard_flagged
+rf__fs_basepolicy,business,20,29,49,0.2528697301676033,0.254601226993865
+rf__fs_basepolicy,mlp__fs_basepolicy,16,17,33,1.0,0.4226086956521739
+business,mlp__fs_basepolicy,29,21,50,0.3222363203575469,0.30462519936204147
