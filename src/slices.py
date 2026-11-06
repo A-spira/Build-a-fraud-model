@@ -175,8 +175,7 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     manifest = {"threshold_tau_rawscore": tau, "global_recall": glob["recall"],
                 "global_precision": glob["precision"], "n_flagged": glob["n_flagged"],
                 "weak_slices": weak[["segment", "level"]].to_dict("records"),
-                "ablation_no_sex_pr_auc_gap": float(ablation_gap),
-                "git_commit": T.git_commit()}
+                "ablation_no_sex_pr_auc_gap": float(ablation_gap)}  # git_commit : MLflow
     (res_dir / "slices_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     # --- MLflow ---

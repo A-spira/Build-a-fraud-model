@@ -254,9 +254,10 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     fig.savefig(fig_path, dpi=150, facecolor=E.SURFACE, metadata={"Software": None})
     plt.close(fig)
 
+    # Provenance volatile (git_commit) : loggée dans MLflow, pas dans le fichier
+    # committé, pour que les sorties soient reproductibles à l'octet près.
     manifest = {"deployed_key": key, "method": chosen, "selection": sel,
                 "brier_prior_1996": brier_prior, "prior": prior,
-                "git_commit": T.git_commit(),
                 "data_sha256": T.file_sha256(bloc4.path(cfg, "data")),
                 "model_path": str(model_path.relative_to(bloc4.PROJECT_ROOT))}
     (res_dir / "calibration_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

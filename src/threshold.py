@@ -263,7 +263,7 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
                 "threshold_tau_rawscore": tau, "threshold_proba_at_tau": tau_proba,
                 "threshold_derived_on": thr["derive_on"],
                 "cost_ratio_primary": thr["cost_ratio"],
-                "operating_1996": op_point, "git_commit": T.git_commit()}
+                "operating_1996": op_point}   # git_commit : dans MLflow, pas committé
     (res_dir / "threshold_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     # --- MLflow ---

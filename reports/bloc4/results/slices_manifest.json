@@ -13,6 +13,5 @@
       "level": "Collision"
     }
   ],
-  "ablation_no_sex_pr_auc_gap": 0.0012193708924671531,
-  "git_commit": "ef322878d40fd133492c2c3f8123412f80b532a1"
+  "ablation_no_sex_pr_auc_gap": 0.0012193708924671531
 }
